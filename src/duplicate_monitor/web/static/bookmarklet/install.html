@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kidana Assist · Bookmarklet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #c9a227;
+      --gold-soft: #e8d68a;
+      --ink: #0f1419;
+      --ink-2: #2a2f3a;
+      --ink-3: #565d6d;
+      --line: #e6e8ec;
+      --bg: #fafaf7;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Almarai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.7;
+      direction: rtl;
+    }
+    .container { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 32px;
+    }
+    header img { height: 56px; width: auto; }
+    header .titles h1 {
+      margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;
+    }
+    header .titles p {
+      margin: 4px 0 0; color: var(--ink-3); font-size: 14px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #1a1f2c 0%, #0f1419 100%);
+      color: #fff;
+      padding: 36px 32px;
+      border-radius: 14px;
+      margin-bottom: 32px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(800px circle at 100% 0%, rgba(201,162,39,0.18), transparent 50%);
+      pointer-events: none;
+    }
+    .hero h2 { margin: 0 0 10px; font-size: 22px; font-weight: 800; }
+    .hero p { margin: 0 0 24px; opacity: 0.85; font-size: 15px; line-height: 1.8; }
+
+    .bm-wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .bookmarklet {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--gold);
+      color: #0a0a0a;
+      padding: 14px 24px;
+      font-weight: 800; font-size: 16px;
+      text-decoration: none;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(201,162,39,0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      cursor: grab;
+      user-select: none;
+    }
+    .bookmarklet:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(201,162,39,0.45); }
+    .bookmarklet:active { cursor: grabbing; transform: translateY(0); }
+    .hint { font-size: 13px; opacity: 0.75; }
+
+    section.card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 28px 28px 24px;
+      margin-bottom: 18px;
+    }
+    section.card h3 {
+      margin: 0 0 16px; font-size: 18px; font-weight: 800;
+      display: flex; align-items: center; gap: 10px;
+    }
+    section.card h3 .num {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--ink); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 800;
+    }
+    ol, ul { padding-right: 22px; margin: 10px 0; }
+    li { margin: 8px 0; }
+    code, kbd {
+      background: #f4f4ee; border: 1px solid var(--line);
+      padding: 2px 8px; border-radius: 5px;
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .privacy {
+      background: linear-gradient(180deg, #f8f7f0 0%, #ffffff 100%);
+      border-right: 4px solid var(--gold);
+    }
+    .privacy h3 { color: var(--ink); }
+    .check { color: #1a8754; font-weight: 800; }
+    .cross { color: #c0392b; font-weight: 800; }
+
+    .config {
+      background: #fff8e8;
+      border: 1px solid var(--gold-soft);
+    }
+    .config code { background: #fff; }
+
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--ink-3);
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <img src="/static/kidana-logo.png" alt="Kidana" onerror="this.style.display='none'">
+      <div class="titles">
+        <h1>Kidana AI · Bookmarklet</h1>
+        <p>توليد وصف رسمي لبلاغ Maximo بضغطة واحدة — Privacy by Design</p>
+      </div>
+    </header>
+
+    <div class="hero">
+      <h2>الـ Bookmarklet جاهز</h2>
+      <p>اسحبي الزر التالي إلى شريط Bookmarks في متصفحك. ثم افتحي أي بلاغ Service Request في Maximo، اضغطي على الـ Bookmark، وسيُولَّد الوصف الرسمي ويُدرج في حقل التفاصيل تلقائياً.</p>
+      <div class="bm-wrap">
+        <a id="bm-link" class="bookmarklet" href="#" onclick="alert('اسحبي هذا الزر إلى شريط Bookmarks بدلاً من الضغط عليه'); return false;">
+          Kidana AI
+        </a>
+        <span class="hint">← اسحبيني إلى شريط Bookmarks</span>
+      </div>
+    </div>
+
+    <section class="card">
+      <h3><span class="num">1</span> التنصيب</h3>
+      <ol>
+        <li>أظهري شريط Bookmarks بالضغط على <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd></li>
+        <li>اسحبي زر <strong>Kidana AI</strong> الذهبي أعلاه إلى شريط Bookmarks</li>
+        <li>سيظهر اختصار "Kidana AI" في الشريط — انتهى</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h3><span class="num">2</span> الاستخدام</h3>
+      <ol>
+        <li>افتحي Maximo وانتقلي إلى <strong>Service Requests</strong></li>
+        <li>افتحي بلاغاً (موجود أو جديد محفوظ)</li>
+        <li>اضغطي على Bookmark <strong>Kidana AI</strong></li>
+        <li>ستظهر نافذة تأكيد برقم البلاغ — اضغطي OK</li>
+        <li>خلال ثوانٍ يظهر الوصف ويُدرج في حقل Details تلقائياً</li>
+      </ol>
+    </section>
+
+    <section class="card privacy">
+      <h3><span class="num">3</span> الخصوصية — Privacy by Design</h3>
+      <p>الـ Bookmarklet يستخدم <strong>تسجيل دخولك الحالي في Maximo</strong> (الجلسة في المتصفح) — لا توجد كلمات سر أو حسابات خدمة في أي مكان:</p>
+      <ul>
+        <li><span class="check">[+]</span> يقرأ من الصفحة هذه الحقول التشغيلية حصراً: رقم البلاغ، المشعر، الموقع/المعلم، منطقة العمل، الأصل، ونص الـ Details</li>
+        <li><span class="check">[+]</span> ينادي Maximo OSLC بهويتك (cookie الجلسة) — بـ <code>oslc.select</code> صريح للحقول المسموحة فقط</li>
+        <li><span class="check">[+]</span> يفلتر الرد بـ <strong>allowlist في المتصفح</strong> قبل أي إرسال خارجي</li>
+        <li><span class="check">[+]</span> الـ backend يعيد التحقق بـ Pydantic schema (دفاع متطابق — أي حقل غير معروف يُسقَط)</li>
+        <li><span class="check">[+]</span> الـ prompt يُصرَّح للنموذج بإهمال أي اسم/رقم جوال/معرف شخصي قد يظهر في Details</li>
+        <li><span class="cross">[-]</span> لا تُقرأ: إحداثيات GPS، أسماء مبلّغين، أرقام جوالات، أسماء مقاولين، أرقام عقود</li>
+        <li><span class="cross">[-]</span> لا تُخزَّن credentials في أي ملف — جلستك في المتصفح فقط</li>
+        <li><span class="cross">[-]</span> الـ backend لا يلمس Maximo أبداً في هذا التدفق</li>
+      </ul>
+    </section>
+
+    <section class="card config">
+      <h3><span class="num">4</span> الإعدادات الفنية</h3>
+      <ul>
+        <li>قراءة Maximo: <code>/maximo/oslc/os/mxsr</code> (نفس origin، cookie تلقائي)</li>
+        <li>Backend توليد الوصف: <code>http://localhost:8000/api/v1/generate-ticket-description</code></li>
+        <li>المُرسَل للـ backend: حقول <code>TicketInput</code> المفلترة فقط</li>
+        <li>المتطلبات: FastAPI يعمل على localhost:8000 + جلسة Maximo نشطة</li>
+      </ul>
+    </section>
+
+    <footer>
+      Incident Description Engine · Kidana<br>
+      <a href="/docs" style="color: var(--gold-soft);">API Docs</a> ·
+      <a href="/test" style="color: var(--gold-soft);">واجهة الاختبار اليدوية</a>
+    </footer>
+
+  </div>
+
+  <!-- Bookmarklet source — kept readable here, then URL-encoded into the href below -->
+  <script id="bm-source" type="text/plain">
+(function () {
+  // ===== Configuration =====
+  var GENERATE_API = 'http://localhost:8000/api/v1/generate-ticket-description';
+  var OSLC_PATH    = '/maximo/oslc/os/mxsr';
+
+  // Form field IDs for THIS Maximo install (from the discovery bookmarklet).
+  // Each role maps to [codeFieldId, descriptionFieldId | null].
+  // Adding a new role here is the only step needed to expand what's read.
+  var FORM_FIELDS = {
+    ticket:    ['ma884ccfa-tb', null],
+    site:      ['md614ab62-tb', 'md614ab62-tb2'],   // siteid + Arabic name
+    location:  ['m329e68f-tb',  'm329e68f-tb2'],    // marker code + descriptive path
+    work_zone: ['m13fe95d5-tb', 'm13fe95d5-tb2'],   // work zone code + label
+    asset:     ['mc1d41211-tb', 'mc1d41211-tb2']    // asset code + name (when present)
+  };
+
+  // Privacy allowlist — MUST mirror app/integrations/maximo_field_map.py ALLOWED_OSLC_FIELDS
+  // classstructureid: used as the lookup key for mxclassstructure (full fault hierarchy)
+  // when SR.description is under-classified. asset_description يبقى من DOM.
+  var ALLOWED_OSLC = ['ticketid','siteid','location','description','assetnum',
+                      'internalpriority','internalpriority_description','status','reportdate',
+                      'classstructureid'];
+
+  // Mirrors backend SITE_LABELS / PRIORITY_LABELS — keep in sync.
+  var SITE_MAP = {
+    MINA:       'منى',
+    ARAFAT:     'عرفات',
+    MUZDALFA:   'مزدلفة',
+    MUZDALIFA:  'مزدلفة',
+    MUZDALIFAH: 'مزدلفة'
+  };
+  function normalizeSite(code) {
+    if (!code) return code;
+    return SITE_MAP[String(code).trim().toUpperCase()] || code;
+  }
+  var PRIORITY_MAP = { '1': 'حرج', '2': 'عاجل', '3': 'عادي', 1: 'حرج', 2: 'عاجل', 3: 'عادي' };
+
+  // ===== DOM helpers =====
+  function readByID(id) {
+    if (!id) return null;
+    var el = document.getElementById(id);
+    if (el && el.value) return String(el.value).trim();
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        var d = iframes[i].contentDocument;
+        if (d) {
+          var nested = d.getElementById(id);
+          if (nested && nested.value) return String(nested.value).trim();
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+  function readField(role) {
+    var pair = FORM_FIELDS[role] || [null, null];
+    return { code: readByID(pair[0]), desc: readByID(pair[1]) };
+  }
+  function findTicketId() {
+    var v = readField('ticket').code;
+    if (v) return v;
+    return prompt('لم نعثر على رقم البلاغ —اكتبه يدوياً:');
+  }
+  // Recursively look for an editable surface inside any iframe tree.
+  // Maximo uses dijit/Editor which renders as iframe(s) with either
+  // designMode='on' or a contenteditable body, possibly several layers deep.
+  function isEditableDoc(doc) {
+    try {
+      if (!doc) return false;
+      if (doc.designMode && String(doc.designMode).toLowerCase() === 'on') return true;
+      if (doc.body && doc.body.contentEditable === 'true') return true;
+      if (doc.body && doc.body.isContentEditable) return true;
+    } catch (_) {}
+    return false;
+  }
+  function findEditorIn(root) {
+    if (!root) return null;
+    try {
+      if (isEditableDoc(root)) return root.body;
+      if (root.querySelector) {
+        var direct = root.querySelector('[contenteditable="true"], [contenteditable=""]');
+        if (direct) return direct;
+        // dijit/Editor — iframe with class containing dijitEditor
+        var dijitFrame = root.querySelector('iframe.dijitEditorIFrame, iframe[class*="dijitEditor"]');
+        if (dijitFrame) {
+          try {
+            var d = dijitFrame.contentDocument || (dijitFrame.contentWindow && dijitFrame.contentWindow.document);
+            if (d && d.body) return d.body;
+          } catch (_) {}
+        }
+      }
+      var iframes = root.querySelectorAll ? root.querySelectorAll('iframe') : [];
+      for (var i = 0; i < iframes.length; i++) {
+        try {
+          var idoc = iframes[i].contentDocument ||
+                     (iframes[i].contentWindow && iframes[i].contentWindow.document);
+          var found = findEditorIn(idoc);
+          if (found) return found;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
+  }
+  function readEditorContent() {
+    var ed = findEditorIn(document);
+    if (!ed) return null;
+    var text = (ed.innerText || ed.textContent || '').trim();
+    return text || null;
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Wrap the description in a paragraph with explicit small font + RTL
+  // direction. Without this, dijit inherits xx-small from a previous
+  // selection and the inserted text is barely readable.
+  function formatForEditor(text) {
+    return '<p style="font-size:14px !important;line-height:1.9;margin:0;direction:rtl;font-family:Tahoma,Arial,sans-serif">' +
+       escapeHtml(text) + '</p>';
+  }
+
+  // Sanitize operational_details client-side: drop standalone site codes
+  // and add spaces between Arabic and Latin/digit boundaries. Mirrors
+  // backend _sanitize_text. Cheap defense in depth.
+  function sanitizeText(s) {
+    if (!s) return s;
+    return String(s)
+      .replace(/([؀-ۿ])([A-Za-z0-9])/g, '$1 $2')
+      .replace(/([A-Za-z0-9])([؀-ۿ])/g, '$1 $2')
+      .replace(/\b(MINA|ARAFAT|MUZDALFA|MUZDALIFA|MUZDALIFAH)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  // Write through the editor's native input pipeline so dijit registers the
+  // change AND the field remains editable afterwards. Direct innerHTML
+  // assignment leaves dijit's internal model out of sync, which can lock
+  // editing on subsequent clicks.
+  function writeToEditor(editor, html) {
+    if (!editor) return false;
+    try {
+      var doc = editor.ownerDocument;
+      var win = doc.defaultView || doc.parentWindow;
+
+      // Make sure the iframe stays editable
+      try { if (doc.designMode && doc.designMode.toLowerCase() !== 'on') doc.designMode = 'on'; } catch (_) {}
+
+      editor.focus();
+
+      // Two-step clear-then-insert. selectNodeContents + insertHTML alone
+      // does not reliably replace in dijit/Editor — explicit selectAll
+      // followed by delete is needed.
+      if (doc.execCommand) {
+        try { doc.execCommand('selectAll', false, null); } catch (_) {}
+        try { doc.execCommand('delete',    false, null); } catch (_) {}
+        try {
+          if (doc.execCommand('insertHTML', false, html)) {
+            editor.dispatchEvent(new Event('input',  { bubbles: true }));
+            editor.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        } catch (_) {}
+      }
+
+      // Fallback: direct DOM write
+      editor.innerHTML = html;
+      try { editor.dispatchEvent(new Event('input',  { bubbles: true })); } catch (_) {}
+      try { editor.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Remove standalone English words from Arabic location descriptions.
+  // "شاخص Ambulance 12/50" → "شاخص 12/50"
+  // Digits and Arabic words are left untouched; only [A-Za-z]+ tokens are dropped.
+  function cleanLeaf(s) {
+    return String(s).replace(/\b[A-Za-z]+\b/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  // ===== Privacy filter (client-side, mirrors backend allowlist) =====
+  function filterAllowed(obj) {
+    var out = {};
+    for (var k in obj) {
+      if (ALLOWED_OSLC.indexOf(k) !== -1) out[k] = obj[k];
+    }
+    return out;
+  }
+
+  // L1,L2,L3,L4 hierarchy — semantics depend on L1 (mirrors backend parse_classification_hierarchy)
+  // - L1 == "جهات خارجية"  → L2=service_provider, L3=fault_subcategory, L4=fault_category
+  // - otherwise (Kidana asset) → L2=asset_group, L3=fault_subcategory, L4=fault_category
+  function parseHierarchy(desc) {
+    if (!desc) return {};
+    var parts = desc.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+    if (!parts.length) return {};
+    var out = {};
+    if (parts[0] === 'جهات خارجية') {
+      if (parts.length > 1) out.service_provider  = parts[1];
+      if (parts.length > 2) out.fault_subcategory = parts[2];
+      if (parts.length > 3) out.fault_category    = parts[3];
+    } else {
+      if (parts.length > 1) out.asset_group       = parts[1];
+      if (parts.length > 2) out.fault_subcategory = parts[2];
+      if (parts.length > 3) out.fault_category    = parts[3];
+    }
+    return out;
+  }
+
+  // ===== Overlay / Toast =====
+  function showOverlay(html, bg) {
+    var existing = document.getElementById('kidana-overlay');
+    if (existing) existing.remove();
+    var d = document.createElement('div');
+    d.id = 'kidana-overlay';
+    d.style.cssText = 'position:fixed;top:20px;left:20px;background:' + (bg || '#0f1419') +
+      ';color:#fff;padding:18px 22px;border-radius:10px;z-index:2147483647;' +
+      'font-family:Almarai,Arial,sans-serif;direction:rtl;max-width:520px;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,0.35);font-size:14px;line-height:1.7';
+    d.innerHTML = html;
+    document.body.appendChild(d);
+    return d;
+  }
+  // Small auto-dismiss toast for confirmation (used when the description has
+  // already been inserted into the page — no need to re-display it).
+  function showToast(text, ms) {
+    var existing = document.getElementById('kidana-overlay');
+    if (existing) existing.remove();
+    var t = document.createElement('div');
+    t.id = 'kidana-overlay';
+    t.style.cssText = 'position:fixed;top:20px;left:20px;background:#0f1419;color:#fff;' +
+      'padding:12px 20px;border-radius:8px;z-index:2147483647;font-family:Almarai,Arial,sans-serif;' +
+      'direction:rtl;box-shadow:0 8px 24px rgba(0,0,0,0.3);font-size:14px;' +
+      'transition:opacity 0.3s;border-right:3px solid #c9a227';
+    t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(function () {
+      t.style.opacity = '0';
+      setTimeout(function () { if (t.parentNode) t.remove(); }, 300);
+    }, ms || 2500);
+  }
+
+  // Enrich fault_category/fault_subcategory from mxclassification when SR.description
+  // is under-classified.
+  //
+  // ما تعلّمناه من هذا الـ install:
+  //   mxClass.description   = الـ leaf الوصف فقط (آخر مستوى)
+  //   mxClass.hierarchypath = "15 \ 150190" — كودات فقط، بدون نصوص
+  //
+  // لذلك: لو SR.description فيه مستويان فقط، والـ hierarchypath كذلك مستويان،
+  // فالبلاغ مصنَّف ناقصاً في ماكسيمو — لا يمكن استرجاع L3/L4 من أي مصدر.
+  // الدالة تبقى للسجل، ولمستقبل SRs ذات 4 مستويات تصنيف.
+  function enrichFromClass(hier, mxClass) {
+    if (!mxClass) return hier;
+    if (hier.fault_category && hier.fault_subcategory) return hier;
+
+    // لو hierarchypath يحتوي 4 مستويات أو أكثر (بالكود)، يمكن نظرياً جلب الـ parents
+    // بطلبات إضافية. حالياً نعيد hier كما هي — البيانات غير موجودة في ماكسيمو.
+    return hier;
+  }
+
+  // ===== build_ticket_input: mirrors batch_generate.py exactly =====
+  // mxLocPath = standardized location description from mxoperloc (same source as batch).
+  // mxClass   = classstructure record from mxclassstructure (for fault hierarchy enrichment).
+  // form      = page DOM snapshot (fallback for operational_details + asset_description).
+  function buildTicketInput(safe, mxLocPath, mxClass, form) {
+    var out = {};
+    if (safe.ticketid)  out.ticket_id   = String(safe.ticketid);
+    if (safe.siteid)    out.site        = normalizeSite(safe.siteid);
+    // shakhis_ref: mirrors _clean_loc_code() in batch_generate.py exactly.
+    // "AMBULANCE 12/50" → "12/50" | "310072" → "310072"
+    if (safe.location) {
+      var rawLoc = String(safe.location).trim();
+      out.shakhis_ref = rawLoc.replace(/^[A-Z]{2,}\s+/, '').trim() || rawLoc;
+    }
+    // location_path: prefer mxoperloc (standardized), fall back to page DOM
+    var locPath = mxLocPath || form.location.desc || '';
+    if (locPath) {
+      out.location_path = locPath;
+      // نفس منطق الباتش: نقسّم على الـ dash أولاً ثم نطابق كل جزء
+      var segments = locPath.split(/\s*[-–—]\s*/);
+      for (var si = 0; si < segments.length; si++) {
+        var seg = segments[si].trim();
+        if (!out.area_zone) {
+          var mA = seg.match(/^منطقة\s+(.+)$/);
+          if (mA) out.area_zone   = 'منطقة ' + mA[1].trim();
+        }
+        if (!out.grid_square) {
+          var mG = seg.match(/^مربع\s+(.+)$/);
+          if (mG) out.grid_square = 'مربع '  + mG[1].trim();
+        }
+      }
+    }
+    if (safe.assetnum)  out.asset_id    = String(safe.assetnum);
+    // asset_description: page DOM (mc1d41211-tb2). يطابق قيمة الباتش لهذا البلاغ.
+    if (form.asset.desc) out.asset_description = form.asset.desc;
+    // taxonomy hierarchy — same as batch parse_hierarchy, ثم enrichment من classstructure
+    if (safe.description || mxClass) {
+      var h = parseHierarchy(safe.description || '');
+      h = enrichFromClass(h, mxClass);
+      if (h.fault_category)    out.fault_category    = h.fault_category;
+      if (h.fault_subcategory) out.fault_subcategory = h.fault_subcategory;
+      if (h.service_provider)  out.service_provider  = h.service_provider;
+      if (h.asset_group)       out.asset_group       = h.asset_group;
+    }
+    // operational_details: page DOM editor (نفس محتوى description_longdescription بعد strip_html)
+    // الباتش يكتفي بـ strip_html ولا يطبّق sanitize إضافي — نخلّيها مطابقة.
+    if (form.details) out.operational_details = String(form.details).trim();
+    return out;
+  }
+
+  // ===== Main flow =====
+  var ticketId = findTicketId();
+  if (!ticketId) return;
+  if (!confirm('توليد وصف للبلاغ ' + ticketId + '؟\n\nسيُقرأ من الصفحة: رقم البلاغ، المشعر، الموقع، منطقة العمل، الأصل، نص الـ Details. لا يُقرأ شيء آخر.')) return;
+
+  showOverlay('قراءة البلاغ ' + ticketId + ' من Maximo...');
+
+  // Snapshot what's visible on the page (descriptive fields + Details)
+  var formSnapshot = {
+    site:      readField('site'),
+    location:  readField('location'),
+    work_zone: readField('work_zone'),
+    asset:     readField('asset'),
+    details:   readEditorContent()
+  };
+
+  // Debug: store the final payload sent to the API + raw classstructure for inspection.
+  var _debugPayload = {};
+  var _debugMxClass = null;
+  var _debugSafe    = {};      // filtered OSLC SR fields
+  var _debugClsInfo = '';      // diagnostic info on why mxclassstructure may be empty
+
+  // ملاحظة: tkserviceaddress مجموعة فرعية. الـ dot-notation (tkserviceaddress.description)
+  // يعطي 404 على هذا الـ Maximo install، فنطلبها كاسم مفرد — Maximo يرجّع المصفوفة
+  // كاملة، وبعدها filterAllowed يحتفظ بـ description فقط (defense-in-depth).
+  var oslcUrl = OSLC_PATH +
+    '?lean=1&oslc.pageSize=1' +
+    '&oslc.where=' + encodeURIComponent('ticketid="' + ticketId + '"') +
+    '&oslc.select=' + encodeURIComponent(ALLOWED_OSLC.join(','));
+
+  fetch(oslcUrl, { credentials: 'include', headers: { 'Accept': 'application/json' } })
+    .then(function (r) {
+      if (r.status === 401 || r.status === 403) throw new Error('SESSION_EXPIRED');
+      if (!r.ok) throw new Error('Maximo returned ' + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      var members = data.member || data['rdfs:member'] || [];
+      if (!members.length) throw new Error('NOT_FOUND');
+      var safe = filterAllowed(members[0]);
+
+      // Fetch mxoperloc for standardized location_path — mirrors batch_generate.py step 1
+      var locCode = safe.location ? String(safe.location).trim() : '';
+      var locFetch = locCode
+        ? fetch('/maximo/oslc/os/mxoperloc?lean=1&oslc.pageSize=1' +
+                '&oslc.where=' + encodeURIComponent('location="' + locCode + '"') +
+                '&oslc.select=location,description',
+                { credentials: 'include', headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : {}; })
+            .then(function (d) {
+              var m = (d.member || d['rdfs:member'] || [])[0];
+              return m ? String(m.description || '').trim() : '';
+            })
+            .catch(function () { return ''; })
+        : Promise.resolve('');
+
+      // Fetch classstructure for full fault hierarchy when SR.description is under-classified.
+      // اسم الـ object structure يختلف بين installs، فنجرّب عدّة احتمالات بالتسلسل.
+      _debugSafe = safe;
+      var clsId = safe.classstructureid != null ? String(safe.classstructureid).trim() : '';
+      _debugClsInfo = clsId ? ('classstructureid=' + clsId) : 'classstructureid: فارغ من OSLC';
+
+      // mxclassification هو الـ endpoint الصحيح لهذا الـ install (تم التحقق).
+      // نطلب hierarchypath + description فقط.
+      var clsFetch = clsId
+        ? fetch('/maximo/oslc/os/mxclassification?lean=1&oslc.pageSize=1' +
+                '&oslc.select=classstructureid,description,hierarchypath,commoditygroup,commodity' +
+                '&oslc.where=' + encodeURIComponent('classstructureid="' + clsId + '"'),
+                { credentials: 'include', headers: { 'Accept': 'application/json' } })
+            .then(function (r) {
+              _debugClsInfo += ' | HTTP ' + r.status;
+              return r.ok ? r.json() : {};
+            })
+            .then(function (d) {
+              var m = (d.member || d['rdfs:member'] || [])[0];
+              if (!m) { _debugClsInfo += ' | لا سجلات'; return null; }
+              // hierarchypath يخبرنا عدد مستويات التصنيف (بالكود)
+              var lvls = m.hierarchypath ? m.hierarchypath.split('\\').length : 0;
+              _debugClsInfo += ' | levels=' + lvls + ' desc=' + (m.description || '');
+              return m;
+            })
+            .catch(function () { _debugClsInfo += ' | ERR'; return null; })
+        : Promise.resolve(null);
+
+      return Promise.all([locFetch, clsFetch]).then(function (vals) {
+        var mxLocPath = vals[0];
+        var mxClass   = vals[1];
+
+        // Build ticket_input using same logic as batch_generate.py build_ticket_input
+        var ticketInput = buildTicketInput(safe, mxLocPath, mxClass, formSnapshot);
+        // Shallow copy so debug-only fields never reach the API payload.
+        _debugPayload = Object.assign({}, ticketInput);
+        // Keep classstructure raw response separately — must NOT leak into the API payload.
+        _debugMxClass = mxClass || null;
+        // وصف الموقع من الـ DOM (للمراجعة فقط — لا يُرسل للـ API)
+        _debugPayload.loc_dom_desc = formSnapshot.location.desc || '— فارغ';
+
+        showOverlay('جارٍ توليد الوصف...');
+
+      return fetch(GENERATE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ticketInput)
+      });
+    })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+    .then(function (res) {
+      if (!res.ok) {
+        var msg = (res.data && (res.data.detail || (res.data.detail && res.data.detail[0] && res.data.detail[0].msg))) || 'فشل التوليد';
+        showOverlay('<strong>تعذر التوليد</strong><br>' + msg, '#8b1e1e');
+        return;
+      }
+      var data = res.data;
+      var editor = findEditorIn(document);
+      var originalText = formSnapshot.details || '';
+      // No auto-insert — employee reviews first and presses the insert button explicitly.
+
+      // Copy SVG icon — placed inside the description box (top-left corner, RTL layout)
+      var copyIcon =
+        '<button id="kid-copy" title="نسخ الوصف" style="position:absolute;top:8px;left:8px;' +
+        'background:none;border:none;cursor:pointer;padding:4px;opacity:0.4;line-height:0;' +
+        'border-radius:4px;transition:opacity 0.15s,background 0.15s" ' +
+        'onmouseover="this.style.opacity=\'1\';this.style.background=\'rgba(201,162,39,0.15)\'" ' +
+        'onmouseout="this.style.opacity=\'0.4\';this.style.background=\'none\'">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c9a227" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+            '<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>' +
+          '</svg>' +
+        '</button>';
+
+      var descBlock =
+        '<div style="position:relative;margin:10px 0;padding:12px 12px 12px 32px;' +
+        'background:rgba(201,162,39,0.06);border-radius:8px;' +
+        'font-size:14px;line-height:1.9;direction:rtl;white-space:pre-wrap;' +
+        'border-right:3px solid #c9a227;border-left:1px solid rgba(201,162,39,0.2)">' +
+          escapeHtml(data.description) + copyIcon +
+        '</div>';
+
+      var origBlock = originalText
+        ? ('<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">' +
+             '<div style="font-size:11px;color:#c9a227;opacity:0.7;margin-bottom:3px;letter-spacing:0.3px">النص الأصلي</div>' +
+             '<div style="font-size:12px;opacity:0.5;line-height:1.7;max-height:65px;overflow-y:auto">' +
+               escapeHtml(originalText) + '</div>' +
+           '</div>')
+        : '';
+
+      // Restore starts disabled — only enabled after a successful insert.
+      var restoreHtml = originalText
+        ? '<button id="kid-restore" disabled style="background:transparent;color:#444;border:1px solid #2a2f3a;' +
+          'border-radius:6px;padding:6px 14px;cursor:not-allowed;font-family:inherit;font-size:12px;opacity:0.35">استعادة الأصلي</button>'
+        : '';
+
+      var debugFields = [
+        'operational_details','location_path','area_zone','grid_square','shakhis_ref',
+        'loc_dom_desc',
+        'fault_category','fault_subcategory','asset_group','service_provider',
+        'asset_description','site'
+      ];
+      var debugRows = debugFields.map(function (k) {
+        var val = _debugPayload[k];
+        var color = val ? '#7fff9b' : '#ff6b6b';
+        var label = val ? escapeHtml(String(val).slice(0, 120)) : '— فارغ';
+        return '<tr>' +
+          '<td style="padding:3px 8px 3px 0;color:#c9a227;white-space:nowrap;font-size:11px">' + k + '</td>' +
+          '<td style="padding:3px 0;color:' + color + ';font-size:11px;word-break:break-word">' + label + '</td>' +
+          '</tr>';
+      }).join('');
+
+      // Diagnostic info + raw OSLC SR fields + raw mxclassstructure
+      function _renderKV(label, obj) {
+        if (!obj || typeof obj !== 'object') return '';
+        var keys = Object.keys(obj);
+        if (!keys.length) return '';
+        var rows = keys.map(function (k) {
+          var v = obj[k];
+          if (v && typeof v === 'object') v = JSON.stringify(v);
+          return '<tr>' +
+            '<td style="padding:2px 8px 2px 0;color:#888;white-space:nowrap;font-size:10px">' + k + '</td>' +
+            '<td style="padding:2px 0;color:#bbb;font-size:10px;word-break:break-word">' +
+            escapeHtml(String(v == null ? '' : v).slice(0, 200)) + '</td>' +
+            '</tr>';
+        }).join('');
+        return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #2a2f3a">' +
+                 '<div style="font-size:10px;color:#565d6d;margin-bottom:4px">' + label + ':</div>' +
+                 '<table style="border-collapse:collapse;width:100%">' + rows + '</table>' +
+               '</div>';
+      }
+
+      var clsHtml = '';
+      // Diagnostic line — always visible to explain mxclassstructure outcome
+      if (_debugClsInfo) {
+        clsHtml += '<div style="margin-top:8px;padding:6px;background:#1a1f2c;border-radius:4px;' +
+                   'font-size:10px;color:#c9a227">⚙ mxclassstructure: ' + escapeHtml(_debugClsInfo) + '</div>';
+      }
+      clsHtml += _renderKV('OSLC SR (filtered)', _debugSafe);
+      clsHtml += _renderKV('mxclassstructure (raw)', _debugMxClass);
+
+      var debugHtml =
+        '<div id="kid-debug" style="display:none;margin-top:10px;padding:10px;' +
+        'background:#0a0e14;border-radius:6px;border:1px solid #2a2f3a">' +
+          '<div style="font-size:11px;color:#565d6d;margin-bottom:6px">البيانات المُرسلة للـ API:</div>' +
+          '<table style="border-collapse:collapse;width:100%">' + debugRows + '</table>' +
+          clsHtml +
+        '</div>';
+
+      var actions =
+        '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">' +
+          '<button id="kid-insert" style="background:#c9a227;color:#0a0a0a;border:0;border-radius:6px;' +
+          'padding:7px 18px;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px;' +
+          'letter-spacing:0.2px">إدراج في Details ←</button>' +
+          restoreHtml +
+          '<button id="kid-debug-btn" style="background:transparent;color:#565d6d;border:1px solid #2a2f3a;' +
+          'border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:11px">عرض البيانات</button>' +
+        '</div>' +
+        debugHtml;
+
+      showOverlay(
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;' +
+        'padding-bottom:8px;border-bottom:1px solid rgba(201,162,39,0.2)">' +
+          '<strong style="color:#c9a227;font-size:13px;letter-spacing:0.3px">Kidana Assist</strong>' +
+          '<span onclick="document.getElementById(\'kidana-overlay\').remove()" ' +
+          'style="cursor:pointer;color:#565d6d;font-size:12px;padding:2px 8px;border-radius:4px;' +
+          'border:1px solid #2a2f3a" ' +
+          'onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#565d6d\'">إغلاق</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:#565d6d;margin-bottom:6px">الثقة: <span style="color:#c9a227">' +
+        data.confidence + '</span> · ' + data.provided_fields_count + '/' + data.total_fields_count + ' حقل</div>' +
+        descBlock +
+        origBlock +
+        actions,
+        '#1a1f2c'
+      );
+
+      var overlay2 = document.getElementById('kidana-overlay');
+      if (overlay2) { overlay2.style.maxHeight = '85vh'; overlay2.style.overflowY = 'auto'; }
+
+      var insertBtn = document.getElementById('kid-insert');
+      if (insertBtn) insertBtn.onclick = function () {
+        var ok = writeToEditor(editor, formatForEditor(data.description));
+        if (ok) {
+          insertBtn.textContent = 'تم الإدراج ✓';
+          insertBtn.style.background = '#1a4d30';
+          insertBtn.style.color = '#7fff9b';
+          insertBtn.disabled = true;
+          // Unlock restore button now that something has been inserted
+          var rb = document.getElementById('kid-restore');
+          if (rb) {
+            rb.disabled = false;
+            rb.style.opacity = '1';
+            rb.style.cursor = 'pointer';
+            rb.style.color = '#aaa';
+            rb.style.borderColor = 'rgba(255,255,255,0.2)';
+          }
+        } else {
+          insertBtn.textContent = 'لم يُعثر على الحقل — انسخ يدوياً';
+        }
+      };
+
+      var copyBtn = document.getElementById('kid-copy');
+      if (copyBtn) copyBtn.onclick = function () {
+        navigator.clipboard.writeText(data.description).then(function () {
+          copyBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7fff9b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+          copyBtn.style.opacity = '1';
+          setTimeout(function () {
+            copyBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c9a227" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+            copyBtn.style.opacity = '0.4';
+          }, 2000);
+        });
+      };
+
+      var restoreBtn = document.getElementById('kid-restore');
+      if (restoreBtn) restoreBtn.onclick = function () {
+        if (editor) writeToEditor(editor, formatForEditor(originalText));
+        restoreBtn.textContent = 'تمت الاستعادة ✓';
+        restoreBtn.disabled = true;
+        restoreBtn.style.opacity = '0.35';
+        restoreBtn.style.cursor = 'not-allowed';
+      };
+
+      var debugBtn = document.getElementById('kid-debug-btn');
+      var debugPanel = document.getElementById('kid-debug');
+      if (debugBtn && debugPanel) debugBtn.onclick = function () {
+        var visible = debugPanel.style.display !== 'none';
+        debugPanel.style.display = visible ? 'none' : 'block';
+        debugBtn.style.color = visible ? '#565d6d' : '#c9a227';
+        debugBtn.style.borderColor = visible ? '#2a2f3a' : '#c9a227';
+      };
+      });  // closes locFetch.then chain
+    })     // closes .then(function(data))
+    .catch(function (err) {
+      var m = (err && err.message) || '';
+      var human;
+      if (m === 'SESSION_EXPIRED') human = 'الجلسة منتهية —أعد تسجيل الدخول إلى Maximo';
+      else if (m === 'NOT_FOUND')   human = 'البلاغ ' + ticketId + ' غير موجود';
+      else if (m.indexOf('Maximo returned') === 0) human = m;
+      else human = 'تعذر الاتصال — هل FastAPI يعمل على localhost:8000؟';
+      showOverlay(human, '#8b1e1e');
+    });
+})();
+  </script>
+
+  <script>
+    (function () {
+      var src = document.getElementById('bm-source').textContent.trim();
+      var href = 'javascript:' + encodeURIComponent(src);
+      document.getElementById('bm-link').setAttribute('href', href);
+    })();
+  </script>
+
+</body>
+</html>

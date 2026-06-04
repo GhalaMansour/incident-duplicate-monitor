@@ -1,0 +1,178 @@
+# Duplicate Scoring Algorithm
+
+> **Status:** Authoritative reference for the matching layer.
+>
+> **Originality:** The scorer described here was designed in-house for
+> the Kidana ticket vocabulary. The Arabic normalization rules, the
+> template-vs-numbers split, and the weights below are tuned against
+> the live Mina / Arafat / Muzdalifah ticket corpus and are original
+> work by the project owner.
+
+## Scope
+
+The matching layer answers a single question: *given two service
+requests, are they reporting the same incident?* The answer is an
+integer score and a list of human-readable reasons. A pair exceeding
+`LM_MIN_SCORE` (default 7) is retained; a pair exceeding
+`LM_ALERT_SCORE` (default 8) raises an alert.
+
+The implementation is in:
+
+- `src/duplicate_monitor/matching/normalize.py` — Arabic text
+  normalization and HTML stripping.
+- `src/duplicate_monitor/matching/scorer.py` — `smart_text_compare`,
+  `score_pair`, `parse_date`, `format_arabic_gap`.
+- `src/duplicate_monitor/matching/legacy.py` — the bulk detector that
+  applies blocking, scoring, and Union-Find grouping over a whole
+  DataFrame.
+
+This document covers what the matching layer does and why; the code
+documents how.
+
+## Inputs
+
+A normalized service-request record carries these fields:
+
+| Field | Source | Used by |
+|-------|--------|---------|
+| `sr` | OSLC `ticketid` | Identity |
+| `loc` | OSLC `location` | Blocking key, +4 points |
+| `fault` | Last segment of `description` (taxonomy L4) | Blocking key, +3 points |
+| `asset` | OSLC `assetnum` | +4 points when matched |
+| `detail` | `description_longdescription` / `longdescription` | Smart text compare |
+| `requestor_no` | OSLC `zzrequestorno` | +2 points when matched |
+| `reported_dt` | Parsed `reportdate` | Time-gap weighting |
+
+## Pipeline
+
+```
+raw OSLC record
+    |
+    v
+normalize_arabic(strip_html(detail))
+    |
+    v
+blocking on (fault, location)
+    |
+    v
+for each pair within a block:
+    score_pair(record_a, record_b)
+    |
+    v
+Union-Find grouping by SR id
+    |
+    v
+duplicate groups
+```
+
+## Step 1: Arabic normalization
+
+`normalize_arabic` collapses the cosmetic differences that should not
+count toward duplication:
+
+- Non-breaking space (`\xa0`) becomes a regular space.
+- Alef variants (`إأآا`) collapse to plain `ا`.
+- `ى` becomes `ي`.
+- `ة` becomes `ه`.
+- Latin letters are lowercased; whitespace is collapsed.
+
+These rules were chosen because they match the variation seen in real
+Kidana data — different keyboards, different copy-paste sources, and
+different operator habits produce these specific differences.
+
+`strip_html` removes the rich-text markup that arrives in the OSLC
+`description_longdescription` field. Maximo stores the Details field
+as HTML; the matcher only needs the plain text.
+
+## Step 2: Blocking
+
+The bulk detector blocks pairs by `(fault, location)`. A pair must
+share both keys to be scored. The blocking is the dominant
+performance optimization — without it, scoring is O(N^2) over the
+open SR set; with it, it is bounded by the size of the largest
+block.
+
+Two design choices in the blocking:
+
+- The fault key is the **last comma-separated segment** of the
+  taxonomy string (L4 only). Some operators enter only two of the
+  four taxonomy levels; using the last segment is the most reliable
+  way to match those incomplete entries against complete ones.
+- An empty `loc` excludes the SR from blocking entirely. Without a
+  location, the scorer would over-match — every ticket in the same
+  fault category would be a candidate.
+
+## Step 3: Smart text comparison
+
+`smart_text_compare` returns `(classification, points, template_pct)`
+based on two independent measurements:
+
+1. **Template similarity** — the description with numbers replaced by
+   `#` is sequence-matched against the other description's template.
+2. **Numeric overlap** — the Jaccard similarity of the number sets
+   extracted from the original descriptions.
+
+The classification logic:
+
+| Template | Numbers | Classification | Points |
+|---------|--------|----------------|--------|
+| `>= 90%` | `>= 50%` | `identical` | +5 |
+| `>= 90%` | `< 30%` and token sim `< 80%` | `template_only` | +0 (with warning) |
+| `>= 80%` | (any) | `similar` | +3 |
+| `< 80%` | (any) | `different` | 0 |
+
+The `template_only` class is the most operationally important: it
+catches the case where two crews report the same boilerplate (for
+example, "تسرب في شبكة المياه عند المربع") for genuinely different
+locations or assets. The score is 0 but the dashboard surfaces a
+warning so the reviewer knows.
+
+## Step 4: Per-pair scoring
+
+`score_pair` aggregates four signal sources:
+
+| Signal | Condition | Points |
+|--------|----------|--------|
+| Same location | Always (guaranteed by blocking) | +4 |
+| Same fault | Always (guaranteed by blocking) | +3 |
+| Same asset | Asset matches and differs from location string | +4 |
+| Text compare | identical / similar / template_only | +5 / +3 / 0 |
+| Same requestor | `requestor_no` matches | +2 |
+| Time gap < 1 day | reported within 24 h | +3 |
+| Time gap < 2 days | reported within 24-48 h | +2 |
+| Time gap <= 2 days | reported within 48 h | +1 |
+
+The maximum theoretical score for a pair is 21
+(4 + 3 + 4 + 5 + 2 + 3). In practice, a real duplicate scores 10-14.
+
+## Step 5: Grouping
+
+The bulk detector applies Union-Find over the surviving pairs to
+collapse transitive duplicates into groups. If A is a duplicate of B
+and B is a duplicate of C, all three appear in the same group even if
+the (A, C) pair was not directly scored.
+
+## Tuning history
+
+The default weights and thresholds in the table above are the result
+of iteration against the live ticket corpus. The decisions that drove
+the current values:
+
+- The `(template, numbers)` split exists because boilerplate
+  descriptions ("انقطاع كهرباء") would otherwise drive false
+  positives during peak hours.
+- The same-day +3 bonus is what most reliably identifies "the same
+  crew reported it twice" — the most common duplicate pattern.
+- The asset bonus (+4) deliberately requires `asset != loc` so we
+  don't double-count when the location string and the asset number
+  refer to the same physical thing.
+
+## Future work
+
+- **Configurable weights.** Make every value in the scoring table an
+  environment variable so each site can tune.
+- **Explainability panel.** Render the per-signal contribution in the
+  dashboard so reviewers can audit a decision.
+- **Embedding-based fallback.** For the residual false negatives,
+  evaluate a multilingual embedding model as a secondary scorer that
+  runs only on pairs that the rule-based scorer scored 6-7.

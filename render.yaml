@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: incident-duplicate-monitor-web
+    runtime: python
+    plan: standard
+    pythonVersion: "3.11"
+    buildCommand: pip install -r requirements.txt && pip install .
+    startCommand: python -m duplicate_monitor web
+    healthCheckPath: /health
+    envVars:
+      - key: MAXIMO_BASE_URL
+        sync: false
+      - key: MAXIMO_USER
+        sync: false
+      - key: MAXIMO_PASS
+        sync: false
+
+  - type: worker
+    name: incident-duplicate-monitor-poller
+    runtime: python
+    plan: standard
+    pythonVersion: "3.11"
+    buildCommand: pip install -r requirements.txt && pip install .
+    startCommand: python -m duplicate_monitor poller
+    envVars:
+      - key: MAXIMO_BASE_URL
+        sync: false
+      - key: MAXIMO_USER
+        sync: false
+      - key: MAXIMO_PASS
+        sync: false
