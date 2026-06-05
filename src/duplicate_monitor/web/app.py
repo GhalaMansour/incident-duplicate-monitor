@@ -9,6 +9,7 @@ Run modes (see ``python -m duplicate_monitor --help``):
 * ``web``  — the dashboard only (assumes the poller runs elsewhere).
 * ``both`` — the poller in a background thread plus the dashboard.
 """
+
 from __future__ import annotations
 
 import io
@@ -37,12 +38,14 @@ _STATIC = _HERE / "static"
 if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
+
 @app.on_event("startup")
 async def _auto_scan_on_start():
     """On startup: scan immediately if stale, then start periodic background loop."""
     import asyncio
     import threading as _th
-    await asyncio.sleep(3)          # let uvicorn finish binding first
+
+    await asyncio.sleep(3)  # let uvicorn finish binding first
     global _SCAN_STATE, _bg_scan_maximo  # noqa: F821 — defined below
     if not CFG.has_maximo_credentials:
         return
@@ -53,12 +56,17 @@ async def _auto_scan_on_start():
     # on only 200 rows, and save ~8 groups — overwriting the good full-scan pkl
     # with a tiny result that then perpetuates itself on every restart.
     import logging as _logging
+
     _wlog = _logging.getLogger("live_monitor.web")
     try:
         from duplicate_monitor import scanner as _sc
+
         _sc._seed_cache_from_disk()
-        _wlog.info("Startup: pre-seeded row cache (%d SRs, ref=%d)",
-                   len(_sc._rows_cache), _sc._full_scan_row_count)
+        _wlog.info(
+            "Startup: pre-seeded row cache (%d SRs, ref=%d)",
+            len(_sc._rows_cache),
+            _sc._full_scan_row_count,
+        )
     except Exception as _seed_err:
         _wlog.warning("Startup: pre-seed failed: %s", _seed_err)
 
@@ -67,10 +75,7 @@ async def _auto_scan_on_start():
     # a full re-scan happens by pressing "سحب من Maximo". Background loops
     # only run quick-scan (adds new SRs; never replaces the full dataset).
     scan = _load_scan()
-    no_data = (
-        scan is None
-        or scan.get("sr_count", 0) < 10
-    )
+    no_data = scan is None or scan.get("sr_count", 0) < 10
     if no_data and not _SCAN_STATE.get("running"):
         _th.Thread(target=_bg_scan_maximo, daemon=True, name="startup_scan").start()
 
@@ -79,62 +84,90 @@ async def _auto_scan_on_start():
     # dataset, so the 217 groups the user fetched will never disappear.
     def _quick_scan_loop():
         import time as _time, os as _os
+
         while True:
             try:
-                interval = max(10, int(_os.environ.get("LM_QUICK_SCAN_SEC", str(CFG.quick_scan_sec))))
+                interval = max(
+                    10, int(_os.environ.get("LM_QUICK_SCAN_SEC", str(CFG.quick_scan_sec)))
+                )
             except Exception:
                 interval = CFG.quick_scan_sec
             _time.sleep(interval)
             if CFG.has_maximo_credentials:
                 _bg_quick_scan_maximo()
 
-    _th.Thread(target=_quick_scan_loop, daemon=True,
-               name="quick_scan_scheduler").start()
+    _th.Thread(target=_quick_scan_loop, daemon=True, name="quick_scan_scheduler").start()
 
     # ── 3. Periodic full re-scan — DISABLED ─────────────────────────────
     # Full scans now only happen when the user presses the button.
     # This guarantees groups never disappear between sessions.
 
+
 # ── decisions ─────────────────────────────────────────────────────────────────
 _DEC_PATH = _HERE / "live_decisions.json"
 
+
 def _load_dec() -> dict:
     if _DEC_PATH.exists():
-        try: return json.loads(_DEC_PATH.read_text("utf-8"))
-        except: pass
+        try:
+            return json.loads(_DEC_PATH.read_text("utf-8"))
+        except:
+            pass
     return {}
+
 
 def _save_dec(d: dict):
     _DEC_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
 
+
 # ── scan ──────────────────────────────────────────────────────────────────────
 def _load_scan() -> Optional[dict]:
-    if not CFG.scan_pkl.exists(): return None
-    try: return pickle.loads(CFG.scan_pkl.read_bytes())
-    except: return None
+    if not CFG.scan_pkl.exists():
+        return None
+    try:
+        return pickle.loads(CFG.scan_pkl.read_bytes())
+    except:
+        return None
+
 
 _HTML_TAG_RE = __import__("re").compile(r"<[^>]+>")
 _HTML_COMMENT_RE = __import__("re").compile(r"<!--.*?-->", __import__("re").DOTALL)
+
+
 def _clean_html(s: str) -> str:
     """Strip HTML tags/comments from Maximo long-description text."""
-    if not s: return ""
+    if not s:
+        return ""
     s = _HTML_COMMENT_RE.sub("", str(s))
     s = _HTML_TAG_RE.sub("\n", s)
     # collapse whitespace
     s = "\n".join(line.strip() for line in s.splitlines() if line.strip())
     # decode common entities
-    s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+    s = (
+        s.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+    )
     return s.strip()
 
+
 def _tier(score: int) -> str:
-    if score >= 8: return "confirmed"
-    if score >= 5: return "possible"
+    if score >= 8:
+        return "confirmed"
+    if score >= 5:
+        return "possible"
     return "weak"
 
+
 def _tier_ar(score: int) -> str:
-    if score >= 8: return " مؤكد"
-    if score >= 5: return " محتمل"
+    if score >= 8:
+        return " مؤكد"
+    if score >= 5:
+        return " محتمل"
     return " ضعيف"
+
 
 # ── API ───────────────────────────────────────────────────────────────────────
 @app.get("/api/scan")
@@ -156,78 +189,101 @@ def api_scan():
         # raw_rows store:          reporter = username (no reported_by key),
         #                          reported_name = Arabic caller name
         # Detect format is identified by the presence of 'reported_by'.
-        _detect_fmt   = "reported_by" in m
-        _username     = m.get("reported_by", "") if _detect_fmt else (m.get("reporter") or "")
-        _arabic_name  = (m.get("reporter") or "") if _detect_fmt else (m.get("reported_name") or "")
+        _detect_fmt = "reported_by" in m
+        _username = m.get("reported_by", "") if _detect_fmt else (m.get("reporter") or "")
+        _arabic_name = (m.get("reporter") or "") if _detect_fmt else (m.get("reported_name") or "")
         return {
-            "sr":            m.get("sr",""),
-            "loc":           m.get("loc",""),
-            "loc_ar":        m.get("loc_ar",""),
-            "asset":         m.get("asset",""),
-            "asset_ar":      m.get("asset_ar",""),
-            "fault":         m.get("fault_full") or m.get("fault_orig") or m.get("fault") or "",
-            "summary":       m.get("fault_full") or m.get("fault_orig") or m.get("fault") or "",
-            "reported":      m.get("reported","")[:16],
-            "status":        m.get("status",""),
-            "status_desc":   m.get("status_desc",""),
-            "detail":        _clean_html(m.get("detail") or ""),
-            "reporter":      _username,
+            "sr": m.get("sr", ""),
+            "loc": m.get("loc", ""),
+            "loc_ar": m.get("loc_ar", ""),
+            "asset": m.get("asset", ""),
+            "asset_ar": m.get("asset_ar", ""),
+            "fault": m.get("fault_full") or m.get("fault_orig") or m.get("fault") or "",
+            "summary": m.get("fault_full") or m.get("fault_orig") or m.get("fault") or "",
+            "reported": m.get("reported", "")[:16],
+            "status": m.get("status", ""),
+            "status_desc": m.get("status_desc", ""),
+            "detail": _clean_html(m.get("detail") or ""),
+            "reporter": _username,
             "reporter_display": m.get("reporter_display") or "",
-            "workzone":      m.get("workzone") or "",
-            "priority":      m.get("priority") or "",
+            "workzone": m.get("workzone") or "",
+            "priority": m.get("priority") or "",
             "priority_desc": m.get("priority_desc") or "",
-            "site":          m.get("site") or m.get("siteid") or "",
-            "caller_name":   m.get("caller_name") or "",
-            "caller_phone":  m.get("caller_phone") or "",
-            "caller_email":  m.get("caller_email") or "",
-            "caller_party":  m.get("caller_party") or "",
-            "reporter_phone":m.get("reporter_phone") or "",
-            "reporter_email":m.get("reporter_email") or "",
-            "source":        m.get("source") or "",
-            "source_desc":   m.get("source_desc") or "",
-            "ownergroup":    m.get("ownergroup") or "",
+            "site": m.get("site") or m.get("siteid") or "",
+            "caller_name": m.get("caller_name") or "",
+            "caller_phone": m.get("caller_phone") or "",
+            "caller_email": m.get("caller_email") or "",
+            "caller_party": m.get("caller_party") or "",
+            "reporter_phone": m.get("reporter_phone") or "",
+            "reporter_email": m.get("reporter_email") or "",
+            "source": m.get("source") or "",
+            "source_desc": m.get("source_desc") or "",
+            "ownergroup": m.get("ownergroup") or "",
             "assigned_ownergroup": m.get("assigned_ownergroup") or "",
-            "lat":           m.get("lat") or "",
-            "lon":           m.get("lon") or "",
+            "lat": m.get("lat") or "",
+            "lon": m.get("lon") or "",
             # Kidana custom fields
-            "region":        m.get("region") or "",
-            "block":         m.get("block") or "",
-            "requestor_no":  m.get("requestor_no") or "",
+            "region": m.get("region") or "",
+            "block": m.get("block") or "",
+            "requestor_no": m.get("requestor_no") or "",
             "reported_name": _arabic_name,
-            "contract":      m.get("contract") or "",
-            "contractor":    m.get("contractor") or m.get("party") or "",
-            "party":         m.get("party") or "",
-            "resp_time":     m.get("resp_time") or "",
-            "resp_esc":      m.get("resp_esc") or "",
-            "statusdate":    (m.get("statusdate") or "")[:16],
-            "actstart":      (m.get("actstart") or m.get("targetstart") or "")[:16],
-            "actfinish":     (m.get("actfinish") or "")[:16],
-            "is_origin":     idx == 0,
+            "contract": m.get("contract") or "",
+            "contractor": m.get("contractor") or m.get("party") or "",
+            "party": m.get("party") or "",
+            "resp_time": m.get("resp_time") or "",
+            "resp_esc": m.get("resp_esc") or "",
+            "statusdate": (m.get("statusdate") or "")[:16],
+            "actstart": (m.get("actstart") or m.get("targetstart") or "")[:16],
+            "actfinish": (m.get("actfinish") or "")[:16],
+            "is_origin": idx == 0,
         }
 
-    def _append_group(*, gid: str, score: int, reasons: str, members: list,
-                      decision: str = "", note: str = "", parent_id: str = "",
-                      sub_idx: int = -1):
-        groups.append({
-            "id": gid, "parent_id": parent_id, "sub_idx": sub_idx,
-            "score": score, "tier": _tier(score), "tier_ar": _tier_ar(score),
-            "reasons": reasons, "size": len(members), "decision": decision,
-            "note": note,
-            "members": [_member_view(m, idx) for idx, m in enumerate(members)],
-        })
+    def _append_group(
+        *,
+        gid: str,
+        score: int,
+        reasons: str,
+        members: list,
+        decision: str = "",
+        note: str = "",
+        parent_id: str = "",
+        sub_idx: int = -1,
+    ):
+        groups.append(
+            {
+                "id": gid,
+                "parent_id": parent_id,
+                "sub_idx": sub_idx,
+                "score": score,
+                "tier": _tier(score),
+                "tier_ar": _tier_ar(score),
+                "reasons": reasons,
+                "size": len(members),
+                "decision": decision,
+                "note": note,
+                "members": [_member_view(m, idx) for idx, m in enumerate(members)],
+            }
+        )
 
     for g in scan.get("groups", []):
         members = g.get("members", [])
         gid = "_".join(sorted(m["sr"] for m in members))
         score = g.get("score", 0)
         reasons = g.get("reasons", "")
-        if isinstance(reasons, list): reasons = " · ".join(reasons)
+        if isinstance(reasons, list):
+            reasons = " · ".join(reasons)
         sorted_members = sorted(members, key=lambda m: (m.get("reported_dt") or datetime.max))
         dec = decisions.get(gid, {})
         decision = dec.get("decision", "")
         if decision in ("duplicate", "different"):
-            _append_group(gid=gid, score=score, reasons=reasons, members=sorted_members,
-                          decision=decision, note=dec.get("note", ""))
+            _append_group(
+                gid=gid,
+                score=score,
+                reasons=reasons,
+                members=sorted_members,
+                decision=decision,
+                note=dec.get("note", ""),
+            )
             continue
 
         used_srs = set()
@@ -236,132 +292,177 @@ def api_scan():
             if sub_dec not in ("duplicate", "different"):
                 continue
             sub_srs = set(str(x) for x in sub.get("srs", []))
-            sub_members = [m for m in sorted_members if str(m.get("sr","")) in sub_srs]
+            sub_members = [m for m in sorted_members if str(m.get("sr", "")) in sub_srs]
             if not sub_members:
                 continue
-            used_srs.update(str(m.get("sr","")) for m in sub_members)
-            _append_group(gid=f"{gid}__sub_{idx}", parent_id=gid, sub_idx=idx,
-                          score=score, reasons=reasons, members=sub_members,
-                          decision=sub_dec, note=sub.get("note", ""))
+            used_srs.update(str(m.get("sr", "")) for m in sub_members)
+            _append_group(
+                gid=f"{gid}__sub_{idx}",
+                parent_id=gid,
+                sub_idx=idx,
+                score=score,
+                reasons=reasons,
+                members=sub_members,
+                decision=sub_dec,
+                note=sub.get("note", ""),
+            )
 
-        remaining = [m for m in sorted_members if str(m.get("sr","")) not in used_srs]
+        remaining = [m for m in sorted_members if str(m.get("sr", "")) not in used_srs]
         if remaining:
             _append_group(gid=gid, score=score, reasons=reasons, members=remaining)
     groups.sort(key=lambda g: (bool(g["decision"]), -g["score"]))
     age = time.time() - CFG.scan_pkl.stat().st_mtime if CFG.scan_pkl.exists() else None
     # ── Aggregations for KPIs / map ────────────────────────────────
     from collections import Counter
-    total_srs        = scan.get("sr_count", 0)
-    sr_in_groups     = set()
-    contractor_c     = Counter()
-    fault_c          = Counter()
-    n_confirmed_dec  = 0   # groups decided as "duplicate" (للإغلاق)
-    n_different_dec  = 0
+
+    total_srs = scan.get("sr_count", 0)
+    sr_in_groups = set()
+    contractor_c = Counter()
+    fault_c = Counter()
+    n_confirmed_dec = 0  # groups decided as "duplicate" (للإغلاق)
+    n_different_dec = 0
     geo_dup_points: list = []
     geo_normal_points: list = []
     dup_locs = set()
 
     for g in groups:
         for m in g["members"]:
-            sr = m.get("sr","")
-            if sr: sr_in_groups.add(sr)
+            sr = m.get("sr", "")
+            if sr:
+                sr_in_groups.add(sr)
             og = m.get("ownergroup") or m.get("assigned_ownergroup") or ""
-            if og: contractor_c[og] += 1
+            if og:
+                contractor_c[og] += 1
             f = m.get("fault") or ""
-            if f: fault_c[f] += 1
-            dup_locs.add(m.get("loc",""))
+            if f:
+                fault_c[f] += 1
+            dup_locs.add(m.get("loc", ""))
             try:
                 lat = float(m.get("lat") or 0)
                 lon = float(m.get("lon") or 0)
                 if lat and lon:
-                    geo_dup_points.append({"lat":lat,"lon":lon,"sr":sr,
-                                           "loc":m.get("loc",""),"fault":(m.get("fault") or "")[:60]})
+                    geo_dup_points.append(
+                        {
+                            "lat": lat,
+                            "lon": lon,
+                            "sr": sr,
+                            "loc": m.get("loc", ""),
+                            "fault": (m.get("fault") or "")[:60],
+                        }
+                    )
             except Exception:
                 pass
-        dec = g.get("decision","")
-        if dec == "duplicate":  n_confirmed_dec += 1
-        elif dec == "different": n_different_dec += 1
+        dec = g.get("decision", "")
+        if dec == "duplicate":
+            n_confirmed_dec += 1
+        elif dec == "different":
+            n_different_dec += 1
 
     # Pull normal-location points from the raw scan (all_rows)
-    for r in (scan.get("all_rows") or []):
-        sr = r.get("sr","")
-        if sr in sr_in_groups: continue
+    for r in scan.get("all_rows") or []:
+        sr = r.get("sr", "")
+        if sr in sr_in_groups:
+            continue
         try:
             lat = float(r.get("lat") or 0)
             lon = float(r.get("lon") or 0)
             if lat and lon:
-                geo_normal_points.append({"lat":lat,"lon":lon,"sr":sr,
-                                          "loc":r.get("loc",""),
-                                          "fault":(r.get("fault_orig") or r.get("fault") or "")[:60]})
+                geo_normal_points.append(
+                    {
+                        "lat": lat,
+                        "lon": lon,
+                        "sr": sr,
+                        "loc": r.get("loc", ""),
+                        "fault": (r.get("fault_orig") or r.get("fault") or "")[:60],
+                    }
+                )
         except Exception:
             pass
 
-    top_contractor = contractor_c.most_common(1)[0] if contractor_c else ("",0)
+    top_contractor = contractor_c.most_common(1)[0] if contractor_c else ("", 0)
     contractor_total = sum(contractor_c.values())
     top_faults = fault_c.most_common(3)
-    n_groups   = len(groups)
-    n_dup_srs  = len(sr_in_groups)
-    n_decided  = sum(1 for g in groups if g["decision"])
-    progress   = round(n_decided * 100 / n_groups) if n_groups else 0
+    n_groups = len(groups)
+    n_dup_srs = len(sr_in_groups)
+    n_decided = sum(1 for g in groups if g["decision"])
+    progress = round(n_decided * 100 / n_groups) if n_groups else 0
 
-    return JSONResponse({
-        "ready": True,
-        "scanned_at": scan.get("scanned_at",""),
-        "sr_count": total_srs,
-        "age_seconds": age,
-        "groups": groups,
-        "n_confirmed": sum(1 for g in groups if g["tier"]=="confirmed"),
-        "n_possible":  sum(1 for g in groups if g["tier"]=="possible"),
-        "n_weak":      sum(1 for g in groups if g["tier"]=="weak"),
-        "n_decided":   n_decided,
-        # New KPI data
-        "n_groups":         n_groups,
-        "n_dup_srs":        n_dup_srs,
-        "pct_dup":          round(n_dup_srs * 100 / total_srs, 1) if total_srs else 0,
-        "top_contractor":   {"name": top_contractor[0], "count": top_contractor[1],
-                             "pct": round(top_contractor[1] * 100 / contractor_total, 1) if contractor_total else 0,
-                             "total": contractor_total},
-        "top_faults":       [{"name": f, "count": c} for f, c in top_faults],
-        "n_confirmed_dec":  n_confirmed_dec,
-        "n_different_dec":  n_different_dec,
-        "progress_pct":     progress,
-        "n_remaining":      n_groups - n_decided,
-        "geo_dup":          geo_dup_points,
-        "geo_normal":       geo_normal_points[:2000],  # cap for browser perf
-        "geo_dup_locs":     len(dup_locs),
-        "geo_normal_locs":  max(0, total_srs - n_dup_srs),
-        "open_alerts":      db.alert_counts().get("open", 0),
-        "health": health,
-    }, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        {
+            "ready": True,
+            "scanned_at": scan.get("scanned_at", ""),
+            "sr_count": total_srs,
+            "age_seconds": age,
+            "groups": groups,
+            "n_confirmed": sum(1 for g in groups if g["tier"] == "confirmed"),
+            "n_possible": sum(1 for g in groups if g["tier"] == "possible"),
+            "n_weak": sum(1 for g in groups if g["tier"] == "weak"),
+            "n_decided": n_decided,
+            # New KPI data
+            "n_groups": n_groups,
+            "n_dup_srs": n_dup_srs,
+            "pct_dup": round(n_dup_srs * 100 / total_srs, 1) if total_srs else 0,
+            "top_contractor": {
+                "name": top_contractor[0],
+                "count": top_contractor[1],
+                "pct": round(top_contractor[1] * 100 / contractor_total, 1)
+                if contractor_total
+                else 0,
+                "total": contractor_total,
+            },
+            "top_faults": [{"name": f, "count": c} for f, c in top_faults],
+            "n_confirmed_dec": n_confirmed_dec,
+            "n_different_dec": n_different_dec,
+            "progress_pct": progress,
+            "n_remaining": n_groups - n_decided,
+            "geo_dup": geo_dup_points,
+            "geo_normal": geo_normal_points[:2000],  # cap for browser perf
+            "geo_dup_locs": len(dup_locs),
+            "geo_normal_locs": max(0, total_srs - n_dup_srs),
+            "open_alerts": db.alert_counts().get("open", 0),
+            "health": health,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
 
 @app.post("/api/decision")
 async def api_decision(request: Request):
     body = await request.json()
-    gid      = body.get("gid","").strip()
-    decision = body.get("decision","").strip()   # duplicate|different|""
-    note     = body.get("note","").strip()
-    srs      = body.get("srs", [])
+    gid = body.get("gid", "").strip()
+    decision = body.get("decision", "").strip()  # duplicate|different|""
+    note = body.get("note", "").strip()
+    srs = body.get("srs", [])
 
-    if not gid or decision not in ("duplicate","different",""):
+    if not gid or decision not in ("duplicate", "different", ""):
         raise HTTPException(400, "invalid")
 
     d = _load_dec()
     if decision == "":
         d.pop(gid, None)
     elif srs:
-        entry = d.get(gid, {"decision":"partial","sub_decisions":[]})
-        if "sub_decisions" not in entry: entry["sub_decisions"] = []
-        entry["sub_decisions"].append({
-            "srs": srs, "decision": decision,
-            "note": note, "ts": datetime.now().isoformat(timespec="seconds"),
-        })
+        entry = d.get(gid, {"decision": "partial", "sub_decisions": []})
+        if "sub_decisions" not in entry:
+            entry["sub_decisions"] = []
+        entry["sub_decisions"].append(
+            {
+                "srs": srs,
+                "decision": decision,
+                "note": note,
+                "ts": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
         entry["decision"] = "partial"
         d[gid] = entry
     else:
-        d[gid] = {"decision": decision, "note": note,
-                  "ts": datetime.now().isoformat(timespec="seconds")}
+        d[gid] = {
+            "decision": decision,
+            "note": note,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+        }
     _save_dec(d)
     return JSONResponse({"ok": True})
+
 
 @app.delete("/api/decision/{gid}")
 def del_decision(gid: str, idx: int = -1):
@@ -372,11 +473,13 @@ def del_decision(gid: str, idx: int = -1):
         subs = d[gid].get("sub_decisions", [])
         if 0 <= idx < len(subs):
             subs.pop(idx)
-        if not subs: d[gid]["decision"] = ""
+        if not subs:
+            d[gid]["decision"] = ""
     else:
         del d[gid]
     _save_dec(d)
     return JSONResponse({"ok": True})
+
 
 # ── Live alerts feed ──────────────────────────────────────────────────────────
 @app.get("/api/alerts")
@@ -386,6 +489,7 @@ def api_alerts_feed(since: str = ""):
     if since:
         alerts = [a for a in alerts if a["detected_at"] > since]
     return JSONResponse({"alerts": alerts[:30]})
+
 
 @app.get("/api/notifications")
 def api_notifications():
@@ -400,11 +504,14 @@ def api_notifications():
             if gid and not decisions.get(gid, {}).get("decision"):
                 pending_groups += 1
     open_alerts = db.list_alerts(state="open", limit=8)
-    return JSONResponse({
-        "pending_groups": pending_groups,
-        "open_alert_count": db.alert_counts().get("open", 0),
-        "alerts": open_alerts,
-    })
+    return JSONResponse(
+        {
+            "pending_groups": pending_groups,
+            "open_alert_count": db.alert_counts().get("open", 0),
+            "alerts": open_alerts,
+        }
+    )
+
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 @app.get("/api/analytics")
@@ -416,18 +523,23 @@ def api_analytics():
     groups = scan.get("groups", [])
     if not groups:
         running = _SCAN_STATE.get("running", False)
-        return JSONResponse({
-            "ready": True, "total_groups": 0,
-            "total_srs": scan.get("sr_count", 0),
-            "scanning": running,
-            "scan_phase": _SCAN_STATE.get("progress", {}).get("phase", ""),
-            "tiers":      {"confirmed": 0, "possible": 0, "weak": 0},
-            "decisions":  {"duplicate": 0, "different": 0, "pending": 0},
-            "time_spread": {"same_day": 0, "same_week": 0, "farther": 0},
-            "top_faults": [], "top_locs": [],
-        })
+        return JSONResponse(
+            {
+                "ready": True,
+                "total_groups": 0,
+                "total_srs": scan.get("sr_count", 0),
+                "scanning": running,
+                "scan_phase": _SCAN_STATE.get("progress", {}).get("phase", ""),
+                "tiers": {"confirmed": 0, "possible": 0, "weak": 0},
+                "decisions": {"duplicate": 0, "different": 0, "pending": 0},
+                "time_spread": {"same_day": 0, "same_week": 0, "farther": 0},
+                "top_faults": [],
+                "top_locs": [],
+            }
+        )
 
     from collections import Counter
+
     fault_c: Counter = Counter()
     loc_c: Counter = Counter()
     same_day = same_week = farther = 0
@@ -444,41 +556,52 @@ def api_analytics():
         dec_c[dec] += 1
 
         for m in members:
-            f = (m.get("fault_orig") or m.get("fault") or "")
+            f = m.get("fault_orig") or m.get("fault") or ""
             f = f.split(",")[-1].strip()[:40] if "," in f else f[:40]
-            if f: fault_c[f] += 1
+            if f:
+                fault_c[f] += 1
             loc = (m.get("loc") or "")[:40]
-            if loc: loc_c[loc] += 1
+            if loc:
+                loc_c[loc] += 1
 
         # time spread within group
         dates = []
         for m in members:
-            r = m.get("reported","")
+            r = m.get("reported", "")
             if r and len(r) >= 10:
-                try: dates.append(datetime.strptime(r[:10], "%Y-%m-%d"))
-                except: pass
+                try:
+                    dates.append(datetime.strptime(r[:10], "%Y-%m-%d"))
+                except:
+                    pass
         if len(dates) >= 2:
             dates.sort()
             span = (dates[-1] - dates[0]).days
-            if span == 0: same_day += 1
-            elif span <= 7: same_week += 1
-            else: farther += 1
+            if span == 0:
+                same_day += 1
+            elif span <= 7:
+                same_week += 1
+            else:
+                farther += 1
 
     def top(c: Counter, n: int = 10):
         total = sum(c.values()) or 1
-        return [{"label": k, "count": v, "pct": round(v*100/total)}
-                for k, v in c.most_common(n)]
+        return [
+            {"label": k, "count": v, "pct": round(v * 100 / total)} for k, v in c.most_common(n)
+        ]
 
-    return JSONResponse({
-        "ready": True,
-        "total_groups": len(groups),
-        "total_srs": scan.get("sr_count", 0),
-        "tiers": {k: tier_c.get(k,0) for k in ("confirmed","possible","weak")},
-        "decisions": {k: dec_c.get(k,0) for k in ("duplicate","different","pending")},
-        "time_spread": {"same_day": same_day, "same_week": same_week, "farther": farther},
-        "top_faults": top(fault_c, 12),
-        "top_locs":   top(loc_c, 12),
-    })
+    return JSONResponse(
+        {
+            "ready": True,
+            "total_groups": len(groups),
+            "total_srs": scan.get("sr_count", 0),
+            "tiers": {k: tier_c.get(k, 0) for k in ("confirmed", "possible", "weak")},
+            "decisions": {k: dec_c.get(k, 0) for k in ("duplicate", "different", "pending")},
+            "time_spread": {"same_day": same_day, "same_week": same_week, "farther": farther},
+            "top_faults": top(fault_c, 12),
+            "top_locs": top(loc_c, 12),
+        }
+    )
+
 
 # ── Export Excel ──────────────────────────────────────────────────────────────
 @app.get("/api/export/excel")
@@ -487,38 +610,57 @@ def api_export_excel():
         return _do_export_excel()
     except Exception as _exc:
         import traceback as _tb
-        return JSONResponse(status_code=500, content={"error": str(_exc), "trace": _tb.format_exc()})
+
+        return JSONResponse(
+            status_code=500, content={"error": str(_exc), "trace": _tb.format_exc()}
+        )
+
 
 def _fmt_diff(delta) -> str:
     """Format a timedelta as Arabic short string: +X ثانية / دقيقة / ساعة / يوم."""
     s = int(delta.total_seconds())
-    if s < 0:   s = -s
-    if s < 60:  return f"+{s} ثانية"
-    if s < 3600: return f"+{s//60} دقيقة"
-    if s < 86400: return f"+{s//3600} ساعة"
-    return f"+{s//86400} يوم"
+    if s < 0:
+        s = -s
+    if s < 60:
+        return f"+{s} ثانية"
+    if s < 3600:
+        return f"+{s // 60} دقيقة"
+    if s < 86400:
+        return f"+{s // 3600} ساعة"
+    return f"+{s // 86400} يوم"
+
 
 def _fmt_span(delta) -> str:
     s = int(abs(delta.total_seconds()))
-    d = s // 86400; h = (s % 86400) // 3600; m = (s % 3600) // 60
-    if d: return f"{d} يوم {h} ساعة"
-    if h: return f"{h} ساعة {m} دقيقة"
+    d = s // 86400
+    h = (s % 86400) // 3600
+    m = (s % 3600) // 60
+    if d:
+        return f"{d} يوم {h} ساعة"
+    if h:
+        return f"{h} ساعة {m} دقيقة"
     return f"{m} دقيقة"
+
 
 def _parse_date(v):
     from datetime import datetime as _dt
-    if not v: return None
+
+    if not v:
+        return None
     s = str(v).strip()
     # Try fromisoformat first — handles +03:00 timezone offsets (Python 3.7+)
     try:
         dt = _dt.fromisoformat(s)
-        return dt.replace(tzinfo=None)   # strip tz → naive for comparison
+        return dt.replace(tzinfo=None)  # strip tz → naive for comparison
     except Exception:
         pass
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
-        try: return _dt.strptime(s, fmt)
-        except: pass
+        try:
+            return _dt.strptime(s, fmt)
+        except:
+            pass
     return None
+
 
 def _do_export_excel():
     try:
@@ -528,10 +670,10 @@ def _do_export_excel():
     except ImportError:
         raise HTTPException(503, "openpyxl غير مثبّت — شغّل: pip install openpyxl")
 
-    scan      = _load_scan()
+    scan = _load_scan()
     decisions = _load_dec()
-    groups    = scan.get("groups", []) if scan else []
-    sr_count  = scan.get("sr_count", 0) if scan else 0
+    groups = scan.get("groups", []) if scan else []
+    sr_count = scan.get("sr_count", 0) if scan else 0
 
     def _grp_decision(members):
         """Resolve the user's review decision for a group.
@@ -552,164 +694,236 @@ def _do_export_excel():
             if sd not in ("duplicate", "different"):
                 continue
             for s in sub.get("srs", []):
-                sr_dec[str(s)]  = sd
+                sr_dec[str(s)] = sd
                 sr_note[str(s)] = sub.get("note", "")
         return "", dec.get("note", ""), sr_dec, sr_note
 
     # ── Styles (exact match to مكررات_2026-05-23.xlsx) ───────────────────
-    NAVY     = PatternFill("solid", fgColor="1C2E4A")
-    BLUE_ALT = PatternFill("solid", fgColor="EFF6FF")   # odd groups
-    GRN_ALT  = PatternFill("solid", fgColor="F0FDF4")   # even groups
-    GRN_DEC  = PatternFill("solid", fgColor="DCFCE7")
-    RED_DEC  = PatternFill("solid", fgColor="FECACA")
-    GRAY_F   = PatternFill("solid", fgColor="F5F5F5")
+    NAVY = PatternFill("solid", fgColor="1C2E4A")
+    BLUE_ALT = PatternFill("solid", fgColor="EFF6FF")  # odd groups
+    GRN_ALT = PatternFill("solid", fgColor="F0FDF4")  # even groups
+    GRN_DEC = PatternFill("solid", fgColor="DCFCE7")
+    RED_DEC = PatternFill("solid", fgColor="FECACA")
+    GRAY_F = PatternFill("solid", fgColor="F5F5F5")
     TITLE_FONT = Font(color="B9975B", bold=True, size=13)
-    HDR_FONT   = Font(color="FFFFFF", bold=True, size=10)
-    BOLD10     = Font(bold=True, size=10)
-    NORM10     = Font(size=10)
-    CENTER     = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    RIGHT      = Alignment(horizontal="right",  vertical="center", wrap_text=False)
-    RIGHT_W    = Alignment(horizontal="right",  vertical="top",    wrap_text=True)
-    thin       = Side(style="thin", color="D1D5DB")
-    border     = Border(left=thin, right=thin, top=thin, bottom=thin)
+    HDR_FONT = Font(color="FFFFFF", bold=True, size=10)
+    BOLD10 = Font(bold=True, size=10)
+    NORM10 = Font(size=10)
+    CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    RIGHT_W = Alignment(horizontal="right", vertical="top", wrap_text=True)
+    thin = Side(style="thin", color="D1D5DB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    DEC_LBL  = {"duplicate": "مكرر مؤكد", "different": "مختلف"}
+    DEC_LBL = {"duplicate": "مكرر مؤكد", "different": "مختلف"}
     DEC_FILL = {"duplicate": GRN_DEC, "different": RED_DEC}
 
     def _s(ws_, r, c, val, fill=None, font=NORM10, align=RIGHT):
         cell = ws_.cell(row=r, column=c, value=val)
         cell.border = border
-        cell.fill   = fill  or PatternFill()
-        cell.font   = font
+        cell.fill = fill or PatternFill()
+        cell.font = font
         cell.alignment = align
         return cell
 
     # ── Sheet 1: مجموعات المكررات ─────────────────────────────────────────
-    n_groups  = len(groups)
-    n_members = sum(len(g.get("members",[])) for g in groups)
-    wb  = openpyxl.Workbook()
+    n_groups = len(groups)
+    n_members = sum(len(g.get("members", [])) for g in groups)
+    wb = openpyxl.Workbook()
     ws1 = wb.active
     ws1.title = "مجموعات المكررات"
     ws1.sheet_view.rightToLeft = True
 
     HEADERS = [
-        "رقم المجموعة", "ترتيب البلاغ", "الفارق عن السابق", "أسباب الكشف",
-        "Service Request", "Site", "History", "Source",
-        "Status", "Status Date", "Status Description", "Summary",
-        "Work Zone", "LOCATION", "وصف المعلم", "المربع", "المنطقة",
-        "Asset", "وصف الأصل", "REQUESTOR NO.", "Contract", "Contractor",
-        "REPORTED NAME", "Reported By", "زمن الاستجابه", "Response Esclation",
-        "Resolution Time", "Resolution Escalation", "الجهة", "Details",
-        "Latitude(Y)", "Longitude(X)", "Internal Priority", "Ticket in Other Party",
-        "تاريخ فتح البلاغ", "تاريخ المباشره", "تاريخ المعالجة",
-        "القرار", "ملاحظة المراجعة",
+        "رقم المجموعة",
+        "ترتيب البلاغ",
+        "الفارق عن السابق",
+        "أسباب الكشف",
+        "Service Request",
+        "Site",
+        "History",
+        "Source",
+        "Status",
+        "Status Date",
+        "Status Description",
+        "Summary",
+        "Work Zone",
+        "LOCATION",
+        "وصف المعلم",
+        "المربع",
+        "المنطقة",
+        "Asset",
+        "وصف الأصل",
+        "REQUESTOR NO.",
+        "Contract",
+        "Contractor",
+        "REPORTED NAME",
+        "Reported By",
+        "زمن الاستجابه",
+        "Response Esclation",
+        "Resolution Time",
+        "Resolution Escalation",
+        "الجهة",
+        "Details",
+        "Latitude(Y)",
+        "Longitude(X)",
+        "Internal Priority",
+        "Ticket in Other Party",
+        "تاريخ فتح البلاغ",
+        "تاريخ المباشره",
+        "تاريخ المعالجة",
+        "القرار",
+        "ملاحظة المراجعة",
     ]
-    NCOLS = len(HEADERS)   # 39
+    NCOLS = len(HEADERS)  # 39
 
     # Row 1: merged title
     title = f"مجموعات المكررات المحتملة — {n_groups} مجموعة | {n_members} بلاغ متأثر"
     ws1.cell(row=1, column=1, value=title)
     ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=NCOLS)
     tc = ws1.cell(row=1, column=1)
-    tc.fill = NAVY; tc.font = TITLE_FONT; tc.alignment = CENTER
+    tc.fill = NAVY
+    tc.font = TITLE_FONT
+    tc.alignment = CENTER
     ws1.row_dimensions[1].height = 26
 
     # Row 2: headers
     for ci, h in enumerate(HEADERS, 1):
         cell = ws1.cell(row=2, column=ci, value=h)
-        cell.fill = NAVY; cell.font = HDR_FONT
-        cell.alignment = CENTER; cell.border = border
+        cell.fill = NAVY
+        cell.font = HDR_FONT
+        cell.alignment = CENTER
+        cell.border = border
     ws1.row_dimensions[2].height = 22
     ws1.freeze_panes = "A3"
 
     # Column widths
-    CW = [14,14,14,45, 14,10,8,10, 10,20,16,45,
-          12,16,30,10,10, 14,25,16,10,30,
-          20,14,20,20, 20,20,14,45,
-          14,14,10,16, 18,20,20,
-          16,40]
+    CW = [
+        14,
+        14,
+        14,
+        45,
+        14,
+        10,
+        8,
+        10,
+        10,
+        20,
+        16,
+        45,
+        12,
+        16,
+        30,
+        10,
+        10,
+        14,
+        25,
+        16,
+        10,
+        30,
+        20,
+        14,
+        20,
+        20,
+        20,
+        20,
+        14,
+        45,
+        14,
+        14,
+        10,
+        16,
+        18,
+        20,
+        20,
+        16,
+        40,
+    ]
     for ci, w in enumerate(CW, 1):
         ws1.column_dimensions[get_column_letter(ci)].width = w
 
     cur_data_row = 3
     for gi, g in enumerate(groups, 1):
-        members  = g.get("members", [])
-        reasons  = g.get("reasons", "")
-        if isinstance(reasons, list): reasons = " | ".join(reasons)
+        members = g.get("members", [])
+        reasons = g.get("reasons", "")
+        if isinstance(reasons, list):
+            reasons = " | ".join(reasons)
         row_fill = BLUE_ALT if gi % 2 == 1 else GRN_ALT
         whole_dec, whole_note, sr_dec, sr_note = _grp_decision(members)
 
         # Sort members by reported date ascending
         def _sort_key(m):
-            d = _parse_date(m.get("reported",""))
+            d = _parse_date(m.get("reported", ""))
             from datetime import datetime as _dt2
+
             return d if d else _dt2.min
+
         members_sorted = sorted(members, key=_sort_key)
 
         prev_dt = None
         for order, m in enumerate(members_sorted, 1):
-            r   = cur_data_row
-            dt  = _parse_date(m.get("reported",""))
+            r = cur_data_row
+            dt = _parse_date(m.get("reported", ""))
             if order == 1:
                 order_lbl = "1 (الأصل)"
-                diff_lbl  = "—"
+                diff_lbl = "—"
             else:
                 order_lbl = str(order)
-                diff_lbl  = _fmt_diff(dt - prev_dt) if dt and prev_dt else "—"
+                diff_lbl = _fmt_diff(dt - prev_dt) if dt and prev_dt else "—"
             prev_dt = dt
 
             vals = [
-                f"#{gi}",                                           # A رقم المجموعة
-                order_lbl,                                          # B ترتيب البلاغ
-                diff_lbl,                                           # C الفارق عن السابق
-                reasons if order == 1 else "",                      # D أسباب الكشف
-                m.get("sr",""),                                     # E Service Request
-                m.get("siteid",""),                                 # F Site
-                m.get("history",""),                               # G History
-                m.get("source",""),                                 # H Source
-                m.get("status",""),                                 # I Status
-                m.get("statusdate") or m.get("reported",""),        # J Status Date
-                m.get("status_desc",""),                            # K Status Description
-                (m.get("fault_full") or m.get("fault_orig") or m.get("summary","")), # L Summary
-                m.get("workzone",""),                               # M Work Zone
-                m.get("loc") or m.get("location",""),              # N LOCATION
-                m.get("loc_ar",""),                                 # O وصف المعلم
-                m.get("block",""),                                  # P المربع
-                m.get("region",""),                                 # Q المنطقة
-                m.get("asset",""),                                  # R Asset
-                m.get("asset_ar",""),                               # S وصف الأصل
-                m.get("requestor_no") or m.get("caller_phone",""),  # T REQUESTOR NO.
-                m.get("contract",""),                               # U Contract
-                m.get("contractor") or m.get("party") or m.get("ownergroup",""),  # V Contractor
-                m.get("reported_name") or m.get("reporter",""),     # W REPORTED NAME
-                m.get("reporter",""),                               # X Reported By
-                m.get("resp_time",""),                              # Y زمن الاستجابه
-                m.get("resp_esc",""),                               # Z Response Esclation
-                m.get("resol_time",""),                             # AA Resolution Time
-                m.get("resol_esc",""),                              # AB Resolution Escalation
-                m.get("party") or m.get("caller_party",""),         # AC الجهة
-                m.get("detail",""),                                 # AD Details
-                m.get("lat",""),                                    # AE Latitude(Y)
-                m.get("lon",""),                                    # AF Longitude(X)
-                m.get("priority",""),                               # AG Internal Priority
-                m.get("ticket_other",""),                           # AH Ticket in Other Party
-                m.get("reported",""),                               # AI تاريخ فتح البلاغ
-                m.get("actstart") or m.get("targetstart",""),       # AJ تاريخ المباشره
-                m.get("actfinish",""),                              # AK تاريخ المعالجة
+                f"#{gi}",  # A رقم المجموعة
+                order_lbl,  # B ترتيب البلاغ
+                diff_lbl,  # C الفارق عن السابق
+                reasons if order == 1 else "",  # D أسباب الكشف
+                m.get("sr", ""),  # E Service Request
+                m.get("siteid", ""),  # F Site
+                m.get("history", ""),  # G History
+                m.get("source", ""),  # H Source
+                m.get("status", ""),  # I Status
+                m.get("statusdate") or m.get("reported", ""),  # J Status Date
+                m.get("status_desc", ""),  # K Status Description
+                (m.get("fault_full") or m.get("fault_orig") or m.get("summary", "")),  # L Summary
+                m.get("workzone", ""),  # M Work Zone
+                m.get("loc") or m.get("location", ""),  # N LOCATION
+                m.get("loc_ar", ""),  # O وصف المعلم
+                m.get("block", ""),  # P المربع
+                m.get("region", ""),  # Q المنطقة
+                m.get("asset", ""),  # R Asset
+                m.get("asset_ar", ""),  # S وصف الأصل
+                m.get("requestor_no") or m.get("caller_phone", ""),  # T REQUESTOR NO.
+                m.get("contract", ""),  # U Contract
+                m.get("contractor") or m.get("party") or m.get("ownergroup", ""),  # V Contractor
+                m.get("reported_name") or m.get("reporter", ""),  # W REPORTED NAME
+                m.get("reporter", ""),  # X Reported By
+                m.get("resp_time", ""),  # Y زمن الاستجابه
+                m.get("resp_esc", ""),  # Z Response Esclation
+                m.get("resol_time", ""),  # AA Resolution Time
+                m.get("resol_esc", ""),  # AB Resolution Escalation
+                m.get("party") or m.get("caller_party", ""),  # AC الجهة
+                m.get("detail", ""),  # AD Details
+                m.get("lat", ""),  # AE Latitude(Y)
+                m.get("lon", ""),  # AF Longitude(X)
+                m.get("priority", ""),  # AG Internal Priority
+                m.get("ticket_other", ""),  # AH Ticket in Other Party
+                m.get("reported", ""),  # AI تاريخ فتح البلاغ
+                m.get("actstart") or m.get("targetstart", ""),  # AJ تاريخ المباشره
+                m.get("actfinish", ""),  # AK تاريخ المعالجة
             ]
             # ── Decision + note for THIS SR (whole-group or partial) ──
-            _sr = str(m.get("sr",""))
+            _sr = str(m.get("sr", ""))
             if whole_dec:
                 eff_dec, eff_note = whole_dec, whole_note
             else:
-                eff_dec  = sr_dec.get(_sr, "")
+                eff_dec = sr_dec.get(_sr, "")
                 eff_note = sr_note.get(_sr, "")
-            vals.append(DEC_LBL.get(eff_dec, "لم يُراجع"))           # AL القرار
-            vals.append(eff_note or "")                              # AM ملاحظة المراجعة
-            eff_fill = DEC_FILL.get(eff_dec, row_fill)              # decided → green/red
+            vals.append(DEC_LBL.get(eff_dec, "لم يُراجع"))  # AL القرار
+            vals.append(eff_note or "")  # AM ملاحظة المراجعة
+            eff_fill = DEC_FILL.get(eff_dec, row_fill)  # decided → green/red
             for ci, val in enumerate(vals, 1):
-                font  = BOLD10 if ci in (1,2,3,5,38) else NORM10
-                al    = RIGHT_W if ci in (4,12,30,39) else RIGHT
+                font = BOLD10 if ci in (1, 2, 3, 5, 38) else NORM10
+                al = RIGHT_W if ci in (4, 12, 30, 39) else RIGHT
                 _s(ws1, r, ci, val, fill=eff_fill, font=font, align=al)
             ws1.row_dimensions[r].height = 16
             cur_data_row += 1
@@ -724,55 +938,89 @@ def _do_export_excel():
     ws2.cell(row=1, column=1, value=f"ملخص المجموعات ({n_groups})")
     ws2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
     tc2 = ws2.cell(row=1, column=1)
-    tc2.fill = NAVY; tc2.font = TITLE_FONT; tc2.alignment = CENTER
+    tc2.fill = NAVY
+    tc2.font = TITLE_FONT
+    tc2.alignment = CENTER
     ws2.row_dimensions[1].height = 26
 
-    H2 = ["رقم المجموعة","حجم المجموعة","الثقة","النقاط","أعضاء المجموعة",
-          "تاريخ أول بلاغ","تاريخ آخر بلاغ","المدى الزمني","أسباب الكشف",
-          "القرار","ملاحظة المراجعة"]
+    H2 = [
+        "رقم المجموعة",
+        "حجم المجموعة",
+        "الثقة",
+        "النقاط",
+        "أعضاء المجموعة",
+        "تاريخ أول بلاغ",
+        "تاريخ آخر بلاغ",
+        "المدى الزمني",
+        "أسباب الكشف",
+        "القرار",
+        "ملاحظة المراجعة",
+    ]
     for ci, h in enumerate(H2, 1):
         cell = ws2.cell(row=2, column=ci, value=h)
-        cell.fill = NAVY; cell.font = HDR_FONT
-        cell.alignment = CENTER; cell.border = border
+        cell.fill = NAVY
+        cell.font = HDR_FONT
+        cell.alignment = CENTER
+        cell.border = border
     ws2.row_dimensions[2].height = 22
     ws2.freeze_panes = "A3"
-    for ci, w in enumerate([14,12,12,8,40,18,18,16,55,16,40], 1):
+    for ci, w in enumerate([14, 12, 12, 8, 40, 18, 18, 16, 55, 16, 40], 1):
         ws2.column_dimensions[get_column_letter(ci)].width = w
 
-    TIER_AR = {"confirmed":"مؤكد","possible":"محتمل","weak":"ضعيف"}
+    TIER_AR = {"confirmed": "مؤكد", "possible": "محتمل", "weak": "ضعيف"}
     for gi, g in enumerate(groups, 1):
-        members = g.get("members",[])
-        score   = g.get("score",0)
-        tier    = _tier(score)
-        reasons = g.get("reasons","")
-        if isinstance(reasons, list): reasons = " | ".join(reasons)
-        srs_str = " ، ".join(m.get("sr","") for m in members)
-        dates   = sorted(filter(None, (_parse_date(m.get("reported","")) for m in members)))
-        d_first = str(dates[0])[:16]  if dates else ""
-        d_last  = str(dates[-1])[:16] if dates else ""
-        span    = _fmt_span(dates[-1]-dates[0]) if len(dates) >= 2 else "—"
+        members = g.get("members", [])
+        score = g.get("score", 0)
+        tier = _tier(score)
+        reasons = g.get("reasons", "")
+        if isinstance(reasons, list):
+            reasons = " | ".join(reasons)
+        srs_str = " ، ".join(m.get("sr", "") for m in members)
+        dates = sorted(filter(None, (_parse_date(m.get("reported", "")) for m in members)))
+        d_first = str(dates[0])[:16] if dates else ""
+        d_last = str(dates[-1])[:16] if dates else ""
+        span = _fmt_span(dates[-1] - dates[0]) if len(dates) >= 2 else "—"
         # ── group-level decision label ──
         w_dec, w_note, p_dec, p_note = _grp_decision(members)
         if w_dec:
-            dec_lbl  = DEC_LBL.get(w_dec, "")
+            dec_lbl = DEC_LBL.get(w_dec, "")
             dec_note = w_note
             grp_fill = DEC_FILL.get(w_dec, BLUE_ALT if gi % 2 == 1 else GRN_ALT)
         elif p_dec:
-            dec_lbl  = "جزئي (راجع التفاصيل)"
+            dec_lbl = "جزئي (راجع التفاصيل)"
             dec_note = w_note
             grp_fill = BLUE_ALT if gi % 2 == 1 else GRN_ALT
         else:
-            dec_lbl  = "لم يُراجع"
+            dec_lbl = "لم يُراجع"
             dec_note = w_note
             grp_fill = BLUE_ALT if gi % 2 == 1 else GRN_ALT
         row_fill = grp_fill
         r = gi + 2
-        for ci, val in enumerate([f"#{gi}", len(members), TIER_AR.get(tier,""),
-                                   score, srs_str, d_first, d_last, span, reasons,
-                                   dec_lbl, dec_note], 1):
-            _s(ws2, r, ci, val, fill=row_fill,
-               font=BOLD10 if ci in (1,2,3,4,10) else NORM10,
-               align=RIGHT_W if ci in (5,9,11) else RIGHT)
+        for ci, val in enumerate(
+            [
+                f"#{gi}",
+                len(members),
+                TIER_AR.get(tier, ""),
+                score,
+                srs_str,
+                d_first,
+                d_last,
+                span,
+                reasons,
+                dec_lbl,
+                dec_note,
+            ],
+            1,
+        ):
+            _s(
+                ws2,
+                r,
+                ci,
+                val,
+                fill=row_fill,
+                font=BOLD10 if ci in (1, 2, 3, 4, 10) else NORM10,
+                align=RIGHT_W if ci in (5, 9, 11) else RIGHT,
+            )
         ws2.row_dimensions[r].height = 16
 
     # ── Sheet 3: إحصاءات ─────────────────────────────────────────────────
@@ -781,32 +1029,51 @@ def _do_export_excel():
     ws3.cell(row=1, column=1, value="إحصاءات المجموعات")
     ws3.merge_cells("A1:B1")
     tc3 = ws3.cell(row=1, column=1)
-    tc3.fill = NAVY; tc3.font = TITLE_FONT; tc3.alignment = CENTER
+    tc3.fill = NAVY
+    tc3.font = TITLE_FONT
+    tc3.alignment = CENTER
     ws3.row_dimensions[1].height = 26
     ws3.column_dimensions["A"].width = 40
     ws3.column_dimensions["B"].width = 14
 
-    same_day = sum(1 for g in groups if len(set(
-        (_parse_date(m.get("reported","")) or type("",(),{"date":lambda s:None})()).date
-        if hasattr(_parse_date(m.get("reported","")), "date") else None
-        for m in g.get("members",[]))) == 1)
+    same_day = sum(
+        1
+        for g in groups
+        if len(
+            set(
+                (
+                    _parse_date(m.get("reported", "")) or type("", (), {"date": lambda s: None})()
+                ).date
+                if hasattr(_parse_date(m.get("reported", "")), "date")
+                else None
+                for m in g.get("members", [])
+            )
+        )
+        == 1
+    )
     from collections import Counter
+
     source_counts = Counter(
-        m.get("source","") for g in groups for m in g.get("members",[]) if m.get("source","")
+        m.get("source", "") for g in groups for m in g.get("members", []) if m.get("source", "")
     )
     fault_counts = Counter(
-        (m.get("fault_full") or m.get("fault_orig") or m.get("summary",""))
-        for g in groups for m in g.get("members",[])
+        (m.get("fault_full") or m.get("fault_orig") or m.get("summary", ""))
+        for g in groups
+        for m in g.get("members", [])
     )
 
     # ── decision tallies across all groups ──
     n_conf = n_diff = n_partial = n_unrev = 0
     for _g in groups:
         _wd, _, _pd, _ = _grp_decision(_g.get("members", []))
-        if   _wd == "duplicate":  n_conf    += 1
-        elif _wd == "different":  n_diff    += 1
-        elif _pd:                 n_partial += 1
-        else:                     n_unrev   += 1
+        if _wd == "duplicate":
+            n_conf += 1
+        elif _wd == "different":
+            n_diff += 1
+        elif _pd:
+            n_partial += 1
+        else:
+            n_unrev += 1
 
     stats = [
         ("إجمالي البلاغات في الملف", sr_count),
@@ -819,12 +1086,23 @@ def _do_export_excel():
         ("قرارات جزئية", n_partial),
         ("لم تُراجَع بعد", n_unrev),
         None,
-        ("مجموعات تحوي 3 بلاغات أو أكثر",
-         sum(1 for g in groups if len(g.get("members",[])) >= 3)),
-        ("مجموعات بلاغاتها في نفس اليوم",
-         sum(1 for g in groups if len(set(
-             str(_parse_date(m.get("reported",""))).split()[0] if _parse_date(m.get("reported","")) else ""
-             for m in g.get("members",[]))) == 1)),
+        ("مجموعات تحوي 3 بلاغات أو أكثر", sum(1 for g in groups if len(g.get("members", [])) >= 3)),
+        (
+            "مجموعات بلاغاتها في نفس اليوم",
+            sum(
+                1
+                for g in groups
+                if len(
+                    set(
+                        str(_parse_date(m.get("reported", ""))).split()[0]
+                        if _parse_date(m.get("reported", ""))
+                        else ""
+                        for m in g.get("members", [])
+                    )
+                )
+                == 1
+            ),
+        ),
         None,
         ("— أكثر 10 أعطال تكراراً —", None),
     ]
@@ -836,14 +1114,15 @@ def _do_export_excel():
         stats.append((src or "—", cnt))
 
     for r, item in enumerate(stats, 2):
-        if item is None: continue
+        if item is None:
+            continue
         k, v = item
         ws3.cell(row=r, column=1, value=k).font = BOLD10 if v is None else NORM10
         if v is not None:
             ws3.cell(row=r, column=2, value=v).font = BOLD10
 
     # ── Save ──────────────────────────────────────────────────────────────
-    fname    = f"مكررات_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    fname = f"مكررات_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     out_path = _ROOT / fname
     wb.save(str(out_path))
 
@@ -851,12 +1130,14 @@ def _do_export_excel():
     wb.save(buf)
     buf.seek(0)
     from urllib.parse import quote as _quote
+
     fname_encoded = _quote(fname.encode("utf-8"))
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
     )
+
 
 # ── Background Maximo full scan ───────────────────────────────────────────────
 
@@ -867,6 +1148,7 @@ _QUICK_SCAN_STATE: dict = {"running": False, "last": {}, "error": ""}
 
 # ── Email notification helper ─────────────────────────────────────────────────
 
+
 def _send_email_notification(new_groups: list[dict]) -> None:
     """Send an HTML email listing newly-detected duplicate groups.
 
@@ -874,7 +1156,7 @@ def _send_email_notification(new_groups: list[dict]) -> None:
     """
     import smtplib, logging as _log
     from email.mime.multipart import MIMEMultipart
-    from email.mime.text      import MIMEText
+    from email.mime.text import MIMEText
 
     _elog = _log.getLogger("live_monitor.notify")
 
@@ -889,16 +1171,16 @@ def _send_email_notification(new_groups: list[dict]) -> None:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     rows_html = ""
-    for g in new_groups[:20]:   # cap at 20 to keep email concise
+    for g in new_groups[:20]:  # cap at 20 to keep email concise
         tier = tier_label.get(g.get("tier", ""), g.get("tier", ""))
-        srs  = " · ".join(g.get("srs", []))
+        srs = " · ".join(g.get("srs", []))
         rows_html += (
             f"<tr>"
             f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{tier}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('score',0)}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('size',0)}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee;direction:rtl'>{g.get('fault','')}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('loc','')}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('score', 0)}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('size', 0)}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee;direction:rtl'>{g.get('fault', '')}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{g.get('loc', '')}</td>"
             f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{srs}</td>"
             f"</tr>"
         )
@@ -939,8 +1221,8 @@ def _send_email_notification(new_groups: list[dict]) -> None:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"]    = CFG.smtp_from or CFG.smtp_user
-        msg["To"]      = ", ".join(recipients)
+        msg["From"] = CFG.smtp_from or CFG.smtp_user
+        msg["To"] = ", ".join(recipients)
         msg.attach(MIMEText(html, "html", "utf-8"))
 
         smtp_cls = smtplib.SMTP
@@ -954,6 +1236,7 @@ def _send_email_notification(new_groups: list[dict]) -> None:
     except Exception as exc:
         _elog.warning("Email notification failed: %s", exc)
 
+
 def _bg_quick_scan_maximo():
     global _QUICK_SCAN_STATE
     if _QUICK_SCAN_STATE.get("running"):
@@ -962,6 +1245,7 @@ def _bg_quick_scan_maximo():
     try:
         from duplicate_monitor.maximo_source import MaximoSource
         from duplicate_monitor import scanner as _sc
+
         src = MaximoSource()
         if not src.configured():
             _QUICK_SCAN_STATE["error"] = "بيانات اعتماد Maximo غير مكوّنة في ملف .env"
@@ -974,39 +1258,53 @@ def _bg_quick_scan_maximo():
         new_grps = result.get("new_groups") or []
         if new_grps:
             _threading.Thread(
-                target=_send_email_notification, args=(new_grps,),
-                daemon=True, name="email_notify",
+                target=_send_email_notification,
+                args=(new_grps,),
+                daemon=True,
+                name="email_notify",
             ).start()
     except Exception as e:
         _QUICK_SCAN_STATE["error"] = f"{type(e).__name__}: {e}"
     finally:
         _QUICK_SCAN_STATE["running"] = False
 
+
 def _bg_scan_maximo(force: bool = False, max_days: Optional[int] = None):
     global _SCAN_STATE
-    _SCAN_STATE.update({"running": True, "error": "",
-                        "progress": {"phase": "جارٍ الاتصال بـ Maximo…", "fetched": 0}})
+    _SCAN_STATE.update(
+        {
+            "running": True,
+            "error": "",
+            "progress": {"phase": "جارٍ الاتصال بـ Maximo…", "fetched": 0},
+        }
+    )
     try:
         from duplicate_monitor.maximo_source import MaximoSource, MaximoSourceError
         from duplicate_monitor import scanner as _sc
+
         src = MaximoSource()
         if not src.configured():
             _SCAN_STATE["error"] = "بيانات اعتماد Maximo غير مكوّنة في ملف .env"
             return
+
         # Wrap fetch_all (no status filter) with live progress reporting.
         # _fetch_paginated accepts an on_page callback; we monkey-patch
         # fetch_all to inject it so the UI sees the running count.
         def _on_page(total):
             _SCAN_STATE["progress"] = {
-                "phase":   "جارٍ جلب البلاغات من Maximo…",
+                "phase": "جارٍ جلب البلاغات من Maximo…",
                 "fetched": total,
             }
+
         _orig_fetch_paginated = src._fetch_paginated
+
         def _tracked_paginated(where, *, label="fetch", on_page=None):
             return _orig_fetch_paginated(
-                where, label=label,
+                where,
+                label=label,
                 on_page=on_page if on_page is not None else _on_page,
             )
+
         src._fetch_paginated = _tracked_paginated
         _SCAN_STATE["progress"] = {
             "phase": "جارٍ جلب جميع البلاغات من Maximo… (قد يستغرق بضع دقائق)",
@@ -1017,22 +1315,25 @@ def _bg_scan_maximo(force: bool = False, max_days: Optional[int] = None):
             _SCAN_STATE["error"] = result["error"]
         else:
             _SCAN_STATE["progress"] = {
-                "phase":   "اكتمل",
+                "phase": "اكتمل",
                 "fetched": result["sr_count"],
-                "groups":  result["group_count"],
-                "pairs":   result["pair_count"],
+                "groups": result["group_count"],
+                "pairs": result["pair_count"],
             }
             # Email for new groups (non-blocking)
             new_grps = result.get("new_groups") or []
             if new_grps:
                 _threading.Thread(
-                    target=_send_email_notification, args=(new_grps,),
-                    daemon=True, name="email_notify_full",
+                    target=_send_email_notification,
+                    args=(new_grps,),
+                    daemon=True,
+                    name="email_notify_full",
                 ).start()
     except Exception as e:
         _SCAN_STATE["error"] = f"{type(e).__name__}: {e}"
     finally:
         _SCAN_STATE["running"] = False
+
 
 @app.get("/api/new-groups")
 def api_new_groups():
@@ -1041,29 +1342,37 @@ def api_new_groups():
     """
     last = _QUICK_SCAN_STATE.get("last", {})
     new_grps = last.get("new_groups") or []
-    return JSONResponse({
-        "new_groups": new_grps,
-        "count": len(new_grps),
-        "scanned_at": last.get("scanned_at", ""),
-    })
+    return JSONResponse(
+        {
+            "new_groups": new_grps,
+            "count": len(new_grps),
+            "scanned_at": last.get("scanned_at", ""),
+        }
+    )
+
 
 @app.get("/api/notify-config")
 def api_notify_config():
     """Return whether email notifications are configured (no secrets exposed)."""
-    return JSONResponse({
-        "email_enabled": bool(CFG.notify_email and CFG.smtp_host),
-        "email_recipient": CFG.notify_email if CFG.notify_email else "",
-    })
+    return JSONResponse(
+        {
+            "email_enabled": bool(CFG.notify_email and CFG.smtp_host),
+            "email_recipient": CFG.notify_email if CFG.notify_email else "",
+        }
+    )
+
 
 @app.post("/api/scan-maximo")
 async def api_scan_maximo(request: Request):
     if _SCAN_STATE.get("running"):
         return JSONResponse({"ok": False, "message": "الفحص جارٍ بالفعل — انتظر اكتماله"})
     if not CFG.has_maximo_credentials:
-        return JSONResponse({
-            "ok": False,
-            "message": "بيانات اعتماد Maximo غير مكوّنة — أضف MAXIMO_BASE_URL و MAXIMO_USER و MAXIMO_PASS في .env",
-        })
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "بيانات اعتماد Maximo غير مكوّنة — أضف MAXIMO_BASE_URL و MAXIMO_USER و MAXIMO_PASS في .env",
+            }
+        )
     # Optional user-chosen comparison window (days). Clamp to 1–30.
     max_days = None
     try:
@@ -1072,65 +1381,82 @@ async def api_scan_maximo(request: Request):
             max_days = max(1, min(30, int(body["max_days"])))
     except Exception:
         max_days = None
-    t = _threading.Thread(target=lambda: _bg_scan_maximo(force=True, max_days=max_days),
-                          daemon=True, name="manual_maximo_scan")
+    t = _threading.Thread(
+        target=lambda: _bg_scan_maximo(force=True, max_days=max_days),
+        daemon=True,
+        name="manual_maximo_scan",
+    )
     t.start()
     msg = "بدأ الفحص في الخلفية"
     if max_days:
         msg += f" (نافذة المقارنة: {max_days} يوم)"
     return JSONResponse({"ok": True, "message": msg})
 
+
 @app.post("/api/quick-scan-maximo")
 def api_quick_scan_maximo():
     if not CFG.has_maximo_credentials:
-        return JSONResponse({
-            "ok": False,
-            "message": "بيانات اعتماد Maximo غير مكوّنة — أضف MAXIMO_BASE_URL و MAXIMO_USER و MAXIMO_PASS في .env",
-        })
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "بيانات اعتماد Maximo غير مكوّنة — أضف MAXIMO_BASE_URL و MAXIMO_USER و MAXIMO_PASS في .env",
+            }
+        )
     try:
         from duplicate_monitor.maximo_source import MaximoSource
         from duplicate_monitor import scanner as _sc
+
         result = _sc.run_quick_scan(MaximoSource())
         _QUICK_SCAN_STATE["last"] = result
         _QUICK_SCAN_STATE["error"] = result.get("error", "")
-        return JSONResponse({
-            "ok": not bool(result.get("error")),
-            "message": result.get("error") or "تم تحديث أحدث البلاغات من Maximo",
-            "result": result,
-        })
+        return JSONResponse(
+            {
+                "ok": not bool(result.get("error")),
+                "message": result.get("error") or "تم تحديث أحدث البلاغات من Maximo",
+                "result": result,
+            }
+        )
     except Exception as e:
-        return JSONResponse({
-            "ok": False,
-            "message": f"{type(e).__name__}: {e}",
-        })
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": f"{type(e).__name__}: {e}",
+            }
+        )
+
 
 @app.get("/api/scan-status")
 def api_scan_status():
     scan = _load_scan()
-    return JSONResponse({
-        "running":         _SCAN_STATE.get("running", False),
-        "quick_running":   _QUICK_SCAN_STATE.get("running", False),
-        "quick_last":      _QUICK_SCAN_STATE.get("last", {}),
-        "quick_error":     _QUICK_SCAN_STATE.get("error", ""),
-        "progress":        _SCAN_STATE.get("progress", {}),
-        "error":           _SCAN_STATE.get("error", ""),
-        "has_credentials": CFG.has_maximo_credentials,
-        "maximo_url":      CFG.maximo_base_url or "",
-        "last_scan": {
-            "scanned_at":  scan.get("scanned_at", "")  if scan else "",
-            "sr_count":    scan.get("sr_count", 0)      if scan else 0,
-            "group_count": len(scan.get("groups", []))  if scan else 0,
-            "source":      scan.get("source", "")       if scan else "",
-            "file_name":   scan.get("file_name", "")    if scan else "",
-        },
-    })
+    return JSONResponse(
+        {
+            "running": _SCAN_STATE.get("running", False),
+            "quick_running": _QUICK_SCAN_STATE.get("running", False),
+            "quick_last": _QUICK_SCAN_STATE.get("last", {}),
+            "quick_error": _QUICK_SCAN_STATE.get("error", ""),
+            "progress": _SCAN_STATE.get("progress", {}),
+            "error": _SCAN_STATE.get("error", ""),
+            "has_credentials": CFG.has_maximo_credentials,
+            "maximo_url": CFG.maximo_base_url or "",
+            "last_scan": {
+                "scanned_at": scan.get("scanned_at", "") if scan else "",
+                "sr_count": scan.get("sr_count", 0) if scan else 0,
+                "group_count": len(scan.get("groups", [])) if scan else 0,
+                "source": scan.get("source", "") if scan else "",
+                "file_name": scan.get("file_name", "") if scan else "",
+            },
+        }
+    )
+
 
 # ── File scan (upload path) ───────────────────────────────────────────────────
 _UPLOAD_PATH = _HERE / "uploaded.xlsx"
 
+
 def _run_file_scan(path: Path) -> dict:
     """Read an Excel file, run detect, save the scan pkl. Returns a summary dict."""
     from duplicate_monitor.matching.legacy import detect as _detect, read_file as _read_file
+
     # `read_file` handles HTML-based .xls exports from Maximo, double-header
     # rows where headers repeat in row 0, and the openpyxl/xlrd engine choice.
     try:
@@ -1146,20 +1472,21 @@ def _run_file_scan(path: Path) -> dict:
     except Exception as e:
         return {"error": f"خطأ في كشف المكررات: {e}", "ok": False}
     result["scanned_at"] = datetime.now().isoformat(timespec="seconds")
-    result["sr_count"]   = len(df)
-    result["source"]     = "file"
-    result["file_name"]  = path.name
+    result["sr_count"] = len(df)
+    result["source"] = "file"
+    result["file_name"] = path.name
     CFG.scan_pkl.write_bytes(pickle.dumps(result))
     groups = result.get("groups", [])
     return {
-        "ok":          True,
-        "sr_count":    len(df),
+        "ok": True,
+        "sr_count": len(df),
         "group_count": len(groups),
-        "pair_count":  len(result.get("pairs", [])),
-        "scanned_at":  result["scanned_at"],
-        "file_name":   path.name,
-        "error":       "",
+        "pair_count": len(result.get("pairs", [])),
+        "scanned_at": result["scanned_at"],
+        "file_name": path.name,
+        "error": "",
     }
+
 
 @app.post("/api/upload")
 async def api_upload(file: UploadFile = File(...)):
@@ -1173,6 +1500,7 @@ async def api_upload(file: UploadFile = File(...)):
         raise HTTPException(500, summary.get("error", "خطأ غير محدد"))
     return JSONResponse(summary)
 
+
 @app.get("/api/reports")
 def api_reports():
     """Return all individual SRs from the last scan, with their group membership."""
@@ -1185,8 +1513,8 @@ def api_reports():
     sr_to_group: dict = {}
     for i, g in enumerate(scan.get("groups", []), 1):
         members = g.get("members", [])
-        score   = g.get("score", 0)
-        tier    = _tier(score)
+        score = g.get("score", 0)
+        tier = _tier(score)
         for m in members:
             sr = m.get("sr", "")
             if sr:
@@ -1200,36 +1528,45 @@ def api_reports():
                 if sr and sr not in seen:
                     seen[sr] = m
         all_rows = list(seen.values())
+
     def _reported_key(row: dict) -> str:
         return str(row.get("reported", "") or row.get("reported_dt", "") or "")
+
     all_rows = sorted(all_rows, key=_reported_key, reverse=True)
     result = []
     for row in all_rows:
         sr = str(row.get("sr", ""))
         ginfo = sr_to_group.get(sr, {})
-        result.append({
-            "sr":       sr,
-            "loc":      str(row.get("loc",  "") or ""),
-            "asset":    str(row.get("asset","") or ""),
-            "fault":    str(row.get("fault_orig") or row.get("fault") or "")[:70],
-            "status":   str(row.get("status","") or ""),
-            "reported": str(row.get("reported","") or "")[:16],
-            "detail":   str(row.get("detail","") or "")[:150],
-            "group_num": ginfo.get("group_num"),
-            "tier":      ginfo.get("tier"),
-            "score":     ginfo.get("score"),
-        })
-    return JSONResponse({
-        "ready": True,
-        "total": len(result),
-        "in_groups": len(sr_to_group),
-        "srs": result,
-    }, headers={"Cache-Control": "no-store"})
+        result.append(
+            {
+                "sr": sr,
+                "loc": str(row.get("loc", "") or ""),
+                "asset": str(row.get("asset", "") or ""),
+                "fault": str(row.get("fault_orig") or row.get("fault") or "")[:70],
+                "status": str(row.get("status", "") or ""),
+                "reported": str(row.get("reported", "") or "")[:16],
+                "detail": str(row.get("detail", "") or "")[:150],
+                "group_num": ginfo.get("group_num"),
+                "tier": ginfo.get("tier"),
+                "score": ginfo.get("score"),
+            }
+        )
+    return JSONResponse(
+        {
+            "ready": True,
+            "total": len(result),
+            "in_groups": len(sr_to_group),
+            "srs": result,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(_HTML, headers={"Cache-Control": "no-store"})
+
 
 _HTML = r"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">

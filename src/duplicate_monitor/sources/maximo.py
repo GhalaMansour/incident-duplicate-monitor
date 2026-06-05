@@ -15,13 +15,13 @@ For each endpoint we try authentication as:
 The first combination that returns 200 with a non-empty member list wins
 and is cached for subsequent calls.
 """
+
 from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Optional
-
 
 import httpx
 
@@ -33,42 +33,68 @@ log = logging.getLogger("duplicate_monitor.maximo")
 # Fields we ask Maximo for. Mirrors find_duplicates expected columns.
 # longdescription / description_longdescription is the Details field —
 # critical for text-similarity scoring in find_duplicates.
-_SELECT_FIELDS = ",".join([
-    "ticketid", "siteid", "location", "description",
-    "assetnum", "internalpriority", "internalpriority_description",
-    "status", "status_description",
-    "reportdate", "statusdate", "classstructureid",
-    "workzone", "reportedby", "reportedphone", "reportedemail",
-    # History flag (Y/N) — shows in "History" column
-    "historyflag",
-    # Actual start/finish dates — تاريخ المباشره / تاريخ المعالجة
-    "actstart", "actfinish",
-    # Caller / requestor — what the user calls "رقم المبلّغ"
-    "affectedperson", "affectedphone", "affectedemail",
-    # Requestor (Kidana custom fields) — REQUESTOR NO. / REPORTED NAME
-    "zzrequestorno", "zzrequestor",
-    # Contract & external party (Kidana custom) — Contract / Contractor / الجهة
-    "zzpcontract", "zzpcontract_description",
-    "zzextparty", "zzextparty_description",
-    # SLA / escalation (Kidana custom) — زمن الاستجابه / Response Escalation
-    "zzbreachedtime", "zzesclation",
-    # Target start/finish dates
-    "targetstart", "targetfinish",
-    # Actual finish (correct field name is actualfinish, not actfinish)
-    "actualfinish",
-    # Source channel (Call / Scada / etc.)
-    "source", "source_description",
-    # Contractor / assigned group (+ description = name of the person group)
-    "ownergroup", "ownergroup_description",
-    "assignedownergroup", "assignedownergroup_description",
-    # GPS coords for map view
-    "latitudey", "longitudex", "autolocate",
-    # Caller party (extra context field)
-    "zzcallerparty",
-    # Long description — field name varies by Maximo version/config:
-    "longdescription",
-    "description_longdescription",
-])
+_SELECT_FIELDS = ",".join(
+    [
+        "ticketid",
+        "siteid",
+        "location",
+        "description",
+        "assetnum",
+        "internalpriority",
+        "internalpriority_description",
+        "status",
+        "status_description",
+        "reportdate",
+        "statusdate",
+        "classstructureid",
+        "workzone",
+        "reportedby",
+        "reportedphone",
+        "reportedemail",
+        # History flag (Y/N) — shows in "History" column
+        "historyflag",
+        # Actual start/finish dates — تاريخ المباشره / تاريخ المعالجة
+        "actstart",
+        "actfinish",
+        # Caller / requestor — what the user calls "رقم المبلّغ"
+        "affectedperson",
+        "affectedphone",
+        "affectedemail",
+        # Requestor (Kidana custom fields) — REQUESTOR NO. / REPORTED NAME
+        "zzrequestorno",
+        "zzrequestor",
+        # Contract & external party (Kidana custom) — Contract / Contractor / الجهة
+        "zzpcontract",
+        "zzpcontract_description",
+        "zzextparty",
+        "zzextparty_description",
+        # SLA / escalation (Kidana custom) — زمن الاستجابه / Response Escalation
+        "zzbreachedtime",
+        "zzesclation",
+        # Target start/finish dates
+        "targetstart",
+        "targetfinish",
+        # Actual finish (correct field name is actualfinish, not actfinish)
+        "actualfinish",
+        # Source channel (Call / Scada / etc.)
+        "source",
+        "source_description",
+        # Contractor / assigned group (+ description = name of the person group)
+        "ownergroup",
+        "ownergroup_description",
+        "assignedownergroup",
+        "assignedownergroup_description",
+        # GPS coords for map view
+        "latitudey",
+        "longitudex",
+        "autolocate",
+        # Caller party (extra context field)
+        "zzcallerparty",
+        # Long description — field name varies by Maximo version/config:
+        "longdescription",
+        "description_longdescription",
+    ]
+)
 
 
 class MaximoSourceError(Exception):
@@ -77,23 +103,24 @@ class MaximoSourceError(Exception):
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _basic_auth_header(user: str, pw: str) -> str:
-    raw = f"{user}:{pw}".encode("utf-8")
+    raw = f"{user}:{pw}".encode()
     return "Basic " + base64.b64encode(raw).decode()
 
 
 def _maxauth_header(user: str, pw: str) -> str:
-    raw = f"{user}:{pw}".encode("utf-8")
+    raw = f"{user}:{pw}".encode()
     return base64.b64encode(raw).decode()
 
 
 # Each strategy = (endpoint path, auth header builder, header name)
 _STRATEGIES = [
-    ("/oslc/os/mxsr",        _maxauth_header,    "maxauth"),
-    ("/oslc/os/mxsr",        _basic_auth_header, "Authorization"),
-    ("/oslc/os/mxapisr",     _maxauth_header,    "maxauth"),
-    ("/oslc/os/mxapisr",     _basic_auth_header, "Authorization"),
-    ("/maxrest/rest/os/mxsr", _maxauth_header,   "maxauth"),
+    ("/oslc/os/mxsr", _maxauth_header, "maxauth"),
+    ("/oslc/os/mxsr", _basic_auth_header, "Authorization"),
+    ("/oslc/os/mxapisr", _maxauth_header, "maxauth"),
+    ("/oslc/os/mxapisr", _basic_auth_header, "Authorization"),
+    ("/maxrest/rest/os/mxsr", _maxauth_header, "maxauth"),
     ("/maxrest/rest/os/mxsr", _basic_auth_header, "Authorization"),
 ]
 
@@ -102,9 +129,9 @@ class MaximoSource:
     """Stateful client — caches the first working strategy and reuses the HTTP session."""
 
     def __init__(self):
-        self.base    = (CFG.maximo_base_url or "").rstrip("/")
-        self.user    = CFG.maximo_user
-        self.pw      = CFG.maximo_pass
+        self.base = (CFG.maximo_base_url or "").rstrip("/")
+        self.user = CFG.maximo_user
+        self.pw = CFG.maximo_pass
         self.timeout = CFG.request_timeout
         self._best_strategy: Optional[tuple] = None
         # Persistent HTTP client so Maximo session cookies survive across pages
@@ -156,18 +183,23 @@ class MaximoSource:
 
         # Parse date bounds
         _start_dt: Optional[datetime] = None
-        _end_dt:   Optional[datetime] = None
+        _end_dt: Optional[datetime] = None
 
         # Rolling window: use the LATER of scan_start_date and (today - full_scan_days).
         # This prevents scanning thousands of pages when Maximo ignores WHERE filters.
         start = (CFG.scan_start_date or "").strip()
         if CFG.full_scan_days > 0:
-            from datetime import date, timedelta as _td
+            from datetime import date
+            from datetime import timedelta as _td
+
             rolling = (date.today() - _td(days=CFG.full_scan_days)).strftime("%Y-%m-%d")
             if not start or rolling > start:
                 start = rolling
-                log.info("fetch_all: using rolling window — start=%s (%d days back)",
-                         start, CFG.full_scan_days)
+                log.info(
+                    "fetch_all: using rolling window — start=%s (%d days back)",
+                    start,
+                    CFG.full_scan_days,
+                )
 
         if start:
             try:
@@ -178,8 +210,7 @@ class MaximoSource:
         end = (CFG.scan_end_date or "").strip()
         if end:
             try:
-                _end_dt = datetime.strptime(end, "%Y-%m-%d").replace(
-                    hour=23, minute=59, second=59)
+                _end_dt = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
             except ValueError:
                 log.warning("fetch_all: invalid scan_end_date '%s'", end)
 
@@ -197,36 +228,35 @@ class MaximoSource:
         log.info("fetch_all WHERE: %s | orderBy: -reportdate", where or "(none)")
 
         # ── Paginate newest-first with early stop + hard page cap ────────────
-        all_rows:  list[dict] = []
-        page_size  = min(CFG.page_size, 200)
-        offset     = 0
+        all_rows: list[dict] = []
+        page_size = min(CFG.page_size, 200)
+        offset = 0
         page_count = 0
-        max_pages  = CFG.full_scan_max_pages if CFG.full_scan_max_pages > 0 else 999999
+        max_pages = CFG.full_scan_max_pages if CFG.full_scan_max_pages > 0 else 999999
 
         def _parse_dt(raw: str) -> Optional[datetime]:
             try:
-                return datetime.strptime(str(raw)[:19].replace("T", " "),
-                                         "%Y-%m-%d %H:%M:%S")
+                return datetime.strptime(str(raw)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
             except Exception:
                 return None
 
         while True:
             params: dict = {
-                "oslc.select":   _SELECT_FIELDS,
+                "oslc.select": _SELECT_FIELDS,
                 "oslc.pageSize": str(page_size),
-                "oslc.offset":   str(offset),
-                "oslc.orderBy":  "-reportdate",   # newest first → early stop works
-                "lean":          "1",
+                "oslc.offset": str(offset),
+                "oslc.orderBy": "-reportdate",  # newest first → early stop works
+                "lean": "1",
             }
             if where:
                 params["oslc.where"] = where
 
-            data    = self._call(params)
+            data = self._call(params)
             members = data.get("member") or data.get("rdfs:member") or []
             if not members:
                 break
 
-            page_rows  = [_normalize(m) for m in members]
+            page_rows = [_normalize(m) for m in members]
             early_stop = False
 
             if _start_dt or _end_dt:
@@ -237,10 +267,10 @@ class MaximoSource:
                         filtered.append(r)
                         continue
                     if _start_dt and dt < _start_dt:
-                        early_stop = True   # found a record older than window → stop after this page
-                        continue            # drop this row
+                        early_stop = True  # found a record older than window → stop after this page
+                        continue  # drop this row
                     if _end_dt and dt > _end_dt:
-                        continue            # drop future records (shouldn't happen with orderBy desc)
+                        continue  # drop future records (shouldn't happen with orderBy desc)
                     filtered.append(r)
                 all_rows.extend(filtered)
             else:
@@ -249,21 +279,27 @@ class MaximoSource:
             page_count += 1
             cap_hit = page_count >= max_pages
 
-            log.info("fetch_all: page offset=%d → %d rows (total so far: %d)%s",
-                     offset, len(members), len(all_rows),
-                     " — EARLY STOP" if early_stop else
-                     f" — PAGE CAP ({max_pages})" if cap_hit else "")
+            log.info(
+                "fetch_all: page offset=%d → %d rows (total so far: %d)%s",
+                offset,
+                len(members),
+                len(all_rows),
+                " — EARLY STOP" if early_stop else f" — PAGE CAP ({max_pages})" if cap_hit else "",
+            )
 
             if early_stop or cap_hit or len(members) < page_size:
                 break
             offset += page_size
 
-        log.info("fetch_all: fetched %d SRs total (start=%s end=%s)",
-                 len(all_rows), start or "any", end or "any")
+        log.info(
+            "fetch_all: fetched %d SRs total (start=%s end=%s)",
+            len(all_rows),
+            start or "any",
+            end or "any",
+        )
         return all_rows
 
-    def _fetch_paginated(self, where: str, *, label: str = "fetch",
-                         on_page=None) -> list[dict]:
+    def _fetch_paginated(self, where: str, *, label: str = "fetch", on_page=None) -> list[dict]:
         """Shared pagination loop used by fetch_all_open / fetch_all.
 
         Args:
@@ -274,7 +310,7 @@ class MaximoSource:
         """
         all_rows: list[dict] = []
         page_size = min(CFG.page_size, 200)
-        offset    = 0
+        offset = 0
         next_url: Optional[str] = None
 
         while True:
@@ -282,10 +318,10 @@ class MaximoSource:
                 data = self._call({}, direct_url=next_url)
             else:
                 params: dict = {
-                    "oslc.select":   _SELECT_FIELDS,
+                    "oslc.select": _SELECT_FIELDS,
                     "oslc.pageSize": str(page_size),
-                    "oslc.offset":   str(offset),
-                    "lean":          "1",
+                    "oslc.offset": str(offset),
+                    "lean": "1",
                 }
                 if where:
                     params["oslc.where"] = where
@@ -297,16 +333,21 @@ class MaximoSource:
             nxt = _extract_next_page(data)
             next_url = self._rewrite_host(nxt) if nxt else None
             all_rows.extend([_normalize(m) for m in members])
-            log.info("%s: page offset=%d → %d rows (total so far: %d)%s",
-                     label, offset, len(members), len(all_rows),
-                     " [nextPage]" if next_url else "")
+            log.info(
+                "%s: page offset=%d → %d rows (total so far: %d)%s",
+                label,
+                offset,
+                len(members),
+                len(all_rows),
+                " [nextPage]" if next_url else "",
+            )
             if on_page is not None:
                 try:
                     on_page(len(all_rows))
                 except Exception:
                     pass
             if len(members) < page_size:
-                break   # last page
+                break  # last page
             if not next_url:
                 offset += page_size
 
@@ -329,19 +370,22 @@ class MaximoSource:
         if not self.configured():
             raise MaximoSourceError("Maximo credentials not configured")
 
-        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         import re as _re
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+        from datetime import timezone as _tz
 
         # KSA timezone (+03:00) — Maximo stores/returns dates in this zone.
         ksa = _tz(_td(hours=3))
-        cutoff_dt   = _dt.now(ksa) - _td(hours=cutoff_hours)
-        cutoff_iso  = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S+03:00")
+        cutoff_dt = _dt.now(ksa) - _td(hours=cutoff_hours)
+        cutoff_iso = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S+03:00")
         # Naive comparison value (KSA local) for the client-side safety re-check.
         cutoff_naive = cutoff_dt.replace(tzinfo=None)
 
         def _parse_dt(v: str) -> Optional[datetime]:
             """Parse a Maximo date → naive KSA-local datetime for comparison."""
-            if not v: return None
+            if not v:
+                return None
             s = str(v).strip()
             try:
                 dt = _dt.fromisoformat(s)
@@ -350,10 +394,12 @@ class MaximoSource:
                 return dt
             except Exception:
                 pass
-            s2 = _re.sub(r'[+-]\d{2}:\d{2}$', '', s.replace("T", " ")).strip()[:19]
+            s2 = _re.sub(r"[+-]\d{2}:\d{2}$", "", s.replace("T", " ")).strip()[:19]
             for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-                try: return _dt.strptime(s2[:len(fmt)], fmt)
-                except Exception: pass
+                try:
+                    return _dt.strptime(s2[: len(fmt)], fmt)
+                except Exception:
+                    pass
             return None
 
         # ── Build WHERE: date filter + optional site filter ──────────────────
@@ -365,21 +411,21 @@ class MaximoSource:
 
         page_size = min(CFG.page_size, 200)
         all_rows: list[dict] = []
-        offset    = 0
-        next_url: Optional[str] = None   # OSLC nextPage cursor
-        server_filter_ok = True          # becomes False if Maximo ignores WHERE
+        offset = 0
+        next_url: Optional[str] = None  # OSLC nextPage cursor
+        server_filter_ok = True  # becomes False if Maximo ignores WHERE
 
         for page_num in range(max_pages):
             if next_url:
                 data = self._call({}, direct_url=next_url)
             else:
                 params: dict = {
-                    "oslc.select":   _SELECT_FIELDS,
+                    "oslc.select": _SELECT_FIELDS,
                     "oslc.pageSize": str(page_size),
-                    "oslc.offset":   str(offset),
-                    "oslc.orderBy":  "-reportdate",
-                    "lean":          "1",
-                    "oslc.where":    where,
+                    "oslc.offset": str(offset),
+                    "oslc.orderBy": "-reportdate",
+                    "lean": "1",
+                    "oslc.where": where,
                 }
                 data = self._call(params)
 
@@ -390,13 +436,13 @@ class MaximoSource:
             nxt = _extract_next_page(data)
             next_url = self._rewrite_host(nxt) if nxt else None
 
-            page_rows  = [_normalize(m) for m in members]
-            in_window  = 0
+            page_rows = [_normalize(m) for m in members]
+            in_window = 0
             out_window = 0
             for r in page_rows:
                 dt = _parse_dt(r.get("reported", ""))
                 if dt and dt < cutoff_naive:
-                    out_window += 1          # older than 48h → drop (safety net)
+                    out_window += 1  # older than 48h → drop (safety net)
                 else:
                     all_rows.append(r)
                     in_window += 1
@@ -408,8 +454,13 @@ class MaximoSource:
 
             log.info(
                 "fetch_latest: page %d offset=%d → %d rows (in:%d out:%d, total:%d)%s",
-                page_num + 1, offset, len(members), in_window, out_window,
-                len(all_rows), " [nextPage]" if next_url else "",
+                page_num + 1,
+                offset,
+                len(members),
+                in_window,
+                out_window,
+                len(all_rows),
+                " [nextPage]" if next_url else "",
             )
 
             # Stop conditions:
@@ -423,12 +474,17 @@ class MaximoSource:
             if not next_url:
                 offset += page_size
 
-        log.info("fetch_latest: done — %d SRs covering last %d hours (since %s)",
-                 len(all_rows), cutoff_hours, cutoff_iso)
+        log.info(
+            "fetch_latest: done — %d SRs covering last %d hours (since %s)",
+            len(all_rows),
+            cutoff_hours,
+            cutoff_iso,
+        )
         return all_rows
 
-    def fetch_recent(self, lookback_minutes: Optional[int] = None,
-                     max_pages: int = 1) -> list[dict]:
+    def fetch_recent(
+        self, lookback_minutes: Optional[int] = None, max_pages: int = 1
+    ) -> list[dict]:
         """Return SRs reported within the lookback window.
 
         Args:
@@ -440,7 +496,7 @@ class MaximoSource:
             raise MaximoSourceError("Maximo credentials not configured")
 
         lookback = lookback_minutes if lookback_minutes is not None else CFG.lookback_minutes
-        since    = datetime.now(timezone.utc) - timedelta(minutes=lookback)
+        since = datetime.now(UTC) - timedelta(minutes=lookback)
         since_iso = since.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         since_dt_naive = since.replace(tzinfo=None)
 
@@ -450,36 +506,36 @@ class MaximoSource:
 
         page_size = min(CFG.page_size, 200)
         all_rows: list[dict] = []
-        offset    = 0
+        offset = 0
 
         def _parse_dt(raw: str) -> Optional[datetime]:
             try:
-                return datetime.strptime(str(raw)[:19].replace("T", " "),
-                                         "%Y-%m-%d %H:%M:%S")
+                return datetime.strptime(str(raw)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
             except Exception:
                 return None
 
         for page_idx in range(max_pages):
             params = {
-                "oslc.where":    where,
-                "oslc.select":   _SELECT_FIELDS,
+                "oslc.where": where,
+                "oslc.select": _SELECT_FIELDS,
                 "oslc.pageSize": str(page_size),
-                "oslc.offset":   str(offset),
-                "oslc.orderBy":  "-reportdate",
-                "lean":          "1",
+                "oslc.offset": str(offset),
+                "oslc.orderBy": "-reportdate",
+                "lean": "1",
             }
             data = self._call(params)
             members = data.get("member") or data.get("rdfs:member") or []
             if not members:
                 break
 
-            page_rows  = [_normalize(m) for m in members]
+            page_rows = [_normalize(m) for m in members]
             early_stop = False
-            filtered   = []
+            filtered = []
             for r in page_rows:
                 dt = _parse_dt(r.get("reported", ""))
                 if dt is None:
-                    filtered.append(r); continue
+                    filtered.append(r)
+                    continue
                 if dt < since_dt_naive:
                     early_stop = True
                     continue
@@ -487,9 +543,14 @@ class MaximoSource:
             all_rows.extend(filtered)
 
             if max_pages > 1:
-                log.info("fetch_recent: page offset=%d → %d rows (kept %d, total: %d)%s",
-                         offset, len(members), len(filtered), len(all_rows),
-                         " — EARLY STOP" if early_stop else "")
+                log.info(
+                    "fetch_recent: page offset=%d → %d rows (kept %d, total: %d)%s",
+                    offset,
+                    len(members),
+                    len(filtered),
+                    len(all_rows),
+                    " — EARLY STOP" if early_stop else "",
+                )
 
             if early_stop or len(members) < page_size:
                 break
@@ -509,8 +570,9 @@ class MaximoSource:
         """
         try:
             from urllib.parse import urlsplit, urlunsplit
-            base = urlsplit(self.base)        # https, maximo.kidana.com.sa, /maximo
-            nxt  = urlsplit(url)              # http, 10.13.0.99, /maximo/oslc/...
+
+            base = urlsplit(self.base)  # https, maximo.kidana.com.sa, /maximo
+            nxt = urlsplit(url)  # http, 10.13.0.99, /maximo/oslc/...
             # Keep nextPage's path + query, but use base's scheme + netloc.
             return urlunsplit((base.scheme, base.netloc, nxt.path, nxt.query, nxt.fragment))
         except Exception:
@@ -535,13 +597,12 @@ class MaximoSource:
             endpoint, auth_fn, header_name = self._best_strategy
             url = direct_url or f"{self.base}{endpoint}"
             headers = {
-                header_name:  auth_fn(self.user, self.pw),
-                "Accept":     "application/json",
+                header_name: auth_fn(self.user, self.pw),
+                "Accept": "application/json",
                 "User-Agent": "duplicate_monitor/1.0",
             }
             try:
-                r = self._client.get(url, params=(None if direct_url else params),
-                                     headers=headers)
+                r = self._client.get(url, params=(None if direct_url else params), headers=headers)
                 if r.status_code == 200:
                     try:
                         data = r.json()
@@ -566,15 +627,14 @@ class MaximoSource:
             endpoint, auth_fn, header_name = strat
             url = direct_url or f"{self.base}{endpoint}"
             headers = {
-                header_name:  auth_fn(self.user, self.pw),
-                "Accept":     "application/json",
+                header_name: auth_fn(self.user, self.pw),
+                "Accept": "application/json",
                 "User-Agent": "duplicate_monitor/1.0",
             }
             attempts.append(f"{endpoint} via {header_name}")
             client = httpx.Client(timeout=self.timeout, follow_redirects=True)
             try:
-                r = client.get(url, params=(None if direct_url else params),
-                               headers=headers)
+                r = client.get(url, params=(None if direct_url else params), headers=headers)
                 if r.status_code == 200:
                     try:
                         data = r.json()
@@ -589,17 +649,17 @@ class MaximoSource:
                             self._client.close()
                         except Exception:
                             pass
-                    self._client = client          # keep alive for session cookies
+                    self._client = client  # keep alive for session cookies
                     log.info("Maximo source OK via %s + %s", endpoint, header_name)
                     return data
                 if r.status_code in (401, 403):
-                    last_err = MaximoSourceError(
-                        f"{r.status_code} on {endpoint} ({header_name})")
+                    last_err = MaximoSourceError(f"{r.status_code} on {endpoint} ({header_name})")
                 elif r.status_code == 404:
                     last_err = MaximoSourceError(f"404 on {endpoint}")
                 else:
                     last_err = MaximoSourceError(
-                        f"HTTP {r.status_code} on {endpoint}: {r.text[:200]}")
+                        f"HTTP {r.status_code} on {endpoint}: {r.text[:200]}"
+                    )
                 client.close()
             except httpx.RequestError as e:
                 last_err = MaximoSourceError(f"Network error: {e}")
@@ -688,20 +748,19 @@ class MaximoSource:
         if not codes or not self.configured():
             return {}
         results: dict[str, str] = {}
-        quoted = '","'.join(c.replace('"', '') for c in codes)
-        where  = where_tpl.replace("{codes}", quoted)
+        quoted = '","'.join(c.replace('"', "") for c in codes)
+        where = where_tpl.replace("{codes}", quoted)
         select = ",".join([code_field] + desc_fields)
         params = {
-            "oslc.where":    where,
-            "oslc.select":   select,
-            "lean":          "1",
+            "oslc.where": where,
+            "oslc.select": select,
+            "lean": "1",
             "oslc.pageSize": "500",
         }
         for ep in endpoints:
             try:
                 data = self._call(params, direct_url=f"{self.base}{ep}")
-                members = (data.get("member") or data.get("rdfs:member")
-                           or data.get("Members") or [])
+                members = data.get("member") or data.get("rdfs:member") or data.get("Members") or []
                 if not members:
                     continue
                 for m in members:
@@ -729,6 +788,7 @@ class MaximoSource:
 
 
 # ─── OSLC nextPage extractor ─────────────────────────────────────────────────
+
 
 def _extract_next_page(data: dict) -> Optional[str]:
     """Extract the OSLC nextPage URL from a Maximo response, if present.
@@ -765,6 +825,7 @@ def _extract_next_page(data: dict) -> Optional[str]:
 
 # ─── Normalize a Maximo member into our DB row shape ─────────────────────────
 
+
 def _g(m: dict, *keys: str) -> str:
     """Get the first non-empty value from any of the given keys."""
     for k in keys:
@@ -781,12 +842,12 @@ def _g(m: dict, *keys: str) -> str:
 def _normalize(m: dict) -> dict:
     """Flatten an OSLC member dict to the columns our pipeline expects."""
     return {
-        "sr":       _g(m, "ticketid"),
-        "siteid":   _g(m, "siteid"),
+        "sr": _g(m, "ticketid"),
+        "siteid": _g(m, "siteid"),
         "location": _g(m, "location"),
-        "asset":    _g(m, "assetnum"),
-        "summary":  _g(m, "description"),
-        "status":   _g(m, "status"),
+        "asset": _g(m, "assetnum"),
+        "summary": _g(m, "description"),
+        "status": _g(m, "status"),
         "priority": _g(m, "internalpriority"),
         "priority_desc": _g(m, "internalpriority_description"),
         "reported": _g(m, "reportdate"),
@@ -802,39 +863,38 @@ def _normalize(m: dict) -> dict:
         "caller_email": _g(m, "affectedemail"),
         "caller_party": _g(m, "zzcallerparty"),
         # المصدر (Call / Scada / Web …)
-        "source":      _g(m, "source"),
+        "source": _g(m, "source"),
         "source_desc": _g(m, "source_description"),
         # العقد / مجموعة المقاول
-        "ownergroup":          _g(m, "ownergroup"),
+        "ownergroup": _g(m, "ownergroup"),
         "assigned_ownergroup": _g(m, "assignedownergroup"),
         # الإحداثيات للخريطة
-        "lat":  _g(m, "latitudey"),
-        "lon":  _g(m, "longitudex"),
+        "lat": _g(m, "latitudey"),
+        "lon": _g(m, "longitudex"),
         "geom": _g(m, "autolocate"),
         # وصف الحالة بالإنجليزي
         "status_desc": _g(m, "status_description"),
         # detail isn't always present in mxsr; if your tenant exposes
         # a long-description field, add it here.
-        "detail":    _g(m, "description_longdescription", "longdescription"),
+        "detail": _g(m, "description_longdescription", "longdescription"),
         # History flag & actual dates
-        "history":   _g(m, "historyflag"),
-        "actstart":  _g(m, "actstart", "targetstart"),
+        "history": _g(m, "historyflag"),
+        "actstart": _g(m, "actstart", "targetstart"),
         # تاريخ المعالجة — Maximo field is actualfinish (actfinish is a fallback)
         "actfinish": _g(m, "actualfinish", "actfinish"),
-        "targetstart":  _g(m, "targetstart"),
+        "targetstart": _g(m, "targetstart"),
         "targetfinish": _g(m, "targetfinish"),
         "statusdate": _g(m, "statusdate"),
         # Requestor (Kidana custom) — REQUESTOR NO. / REPORTED NAME (Arabic)
-        "requestor_no":  _g(m, "zzrequestorno"),
+        "requestor_no": _g(m, "zzrequestorno"),
         "reported_name": _g(m, "zzrequestor"),
         # Contract & external party — Contract / Contractor / الجهة
-        "contract":   _g(m, "zzpcontract"),
+        "contract": _g(m, "zzpcontract"),
         # اسم الشركة: وصف العقد أولاً، ثم الجهة الخارجية
-        "contractor": _g(m, "zzpcontract_description",
-                         "zzextparty_description", "zzextparty"),
-        "party":      _g(m, "zzextparty_description", "zzextparty"),
+        "contractor": _g(m, "zzpcontract_description", "zzextparty_description", "zzextparty"),
+        "party": _g(m, "zzextparty_description", "zzextparty"),
         # SLA — زمن الاستجابه / Response Escalation
-        "resp_time":  _g(m, "zzbreachedtime"),
-        "resp_esc":   _g(m, "zzesclation"),
-        "_raw":      m,
+        "resp_time": _g(m, "zzbreachedtime"),
+        "resp_esc": _g(m, "zzesclation"),
+        "_raw": m,
     }

@@ -17,6 +17,7 @@ original ``scripts/find_duplicates.py`` and were renamed from internal
 underscore-prefixed names to public ones; they are the documented
 public API of this module.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -26,14 +27,33 @@ from typing import Optional
 
 from .normalize import normalize_arabic, strip_html
 
-
 _NUM_PATTERN = re.compile(r"\d+(?:/\d+)?")
 
 _DETAIL_STOPWORDS = frozenset(
     {
-        "من", "في", "عن", "على", "الى", "الي", "رقم", "عدد", "داخل",
-        "بداخل", "اقرب", "معلم", "الدوره", "الدورة", "دوره", "دورة",
-        "المياه", "مياه", "القسم", "النسائي", "حمامات", "حسب", "افادة",
+        "من",
+        "في",
+        "عن",
+        "على",
+        "الى",
+        "الي",
+        "رقم",
+        "عدد",
+        "داخل",
+        "بداخل",
+        "اقرب",
+        "معلم",
+        "الدوره",
+        "الدورة",
+        "دوره",
+        "دورة",
+        "المياه",
+        "مياه",
+        "القسم",
+        "النسائي",
+        "حمامات",
+        "حسب",
+        "افادة",
         "المبلغ",
     }
 )

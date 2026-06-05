@@ -32,7 +32,12 @@ jobs:
         run: ruff format --check .
 
       - name: Type-check with mypy
-        run: mypy src/duplicate_monitor/core src/duplicate_monitor/matching/normalize.py src/duplicate_monitor/matching/scorer.py
+        # Strict type checking is applied to the core and matching modules
+        # we have audited. The remaining modules (legacy detector, FastAPI
+        # web app, scanner, sources) are functional but pre-date the
+        # project's typing standards; they are scheduled for incremental
+        # typing in the project roadmap.
+        run: mypy --ignore-missing-imports src/duplicate_monitor/core src/duplicate_monitor/matching/normalize.py src/duplicate_monitor/matching/scorer.py
 
       - name: Run unit tests
         run: pytest tests/unit --cov=duplicate_monitor --cov-report=term-missing

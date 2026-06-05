@@ -12,6 +12,7 @@ Designed to be resilient — a Maximo outage does not crash the loop, and
 the next tick will retry. After 3 consecutive Maximo failures we
 automatically switch to file mode until the API recovers.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,7 +20,6 @@ import signal
 import threading
 import time
 import traceback
-from datetime import datetime
 from typing import Optional
 
 from duplicate_monitor.core.config import CFG
@@ -34,6 +34,7 @@ log = logging.getLogger("duplicate_monitor.poller")
 
 # ─── Source selector ─────────────────────────────────────────────────────
 
+
 class SourceManager:
     """Picks Maximo first, falls back to file after N failures."""
 
@@ -41,7 +42,7 @@ class SourceManager:
 
     def __init__(self):
         self.maximo = MaximoSource()
-        self.files  = FileSource()
+        self.files = FileSource()
         self._maximo_failures = 0
         self._mode_override: Optional[str] = None  # forced by config
 
@@ -70,8 +71,9 @@ class SourceManager:
             except MaximoSourceError as e:
                 self._maximo_failures += 1
                 errors.append(f"maximo: {e}")
-                log.warning("Maximo fetch failed (%d/%d): %s",
-                            self._maximo_failures, self.FAIL_THRESHOLD, e)
+                log.warning(
+                    "Maximo fetch failed (%d/%d): %s", self._maximo_failures, self.FAIL_THRESHOLD, e
+                )
                 if self._mode_override == "maximo":
                     raise
 
@@ -89,6 +91,7 @@ class SourceManager:
 
 # ─── One polling tick ────────────────────────────────────────────────────
 
+
 def run_tick(sources: SourceManager) -> dict:
     """Execute one fetch + score cycle. Returns a summary dict."""
     poll_id = db.start_poll(source=sources.current_mode())
@@ -96,7 +99,7 @@ def run_tick(sources: SourceManager) -> dict:
 
     try:
         source, rows = sources.fetch()
-        summary["source"]  = source
+        summary["source"] = source
         summary["fetched"] = len(rows)
 
         # Snapshot the open SR pool BEFORE we ingest new ones.
@@ -112,19 +115,21 @@ def run_tick(sources: SourceManager) -> dict:
                 for _row in _scan["all_rows"]:
                     _sr = _row.get("sr", "")
                     if _sr and _sr not in pool_srs:
-                        pool.append({
-                            "sr":       _sr,
-                            "reported": str(_row.get("reported", "")),
-                            "location": _row.get("loc", ""),
-                            "asset":    _row.get("asset", ""),
-                            "summary":  _row.get("fault_orig") or _row.get("fault", ""),
-                            "detail":   _row.get("detail", ""),
-                        })
+                        pool.append(
+                            {
+                                "sr": _sr,
+                                "reported": str(_row.get("reported", "")),
+                                "location": _row.get("loc", ""),
+                                "asset": _row.get("asset", ""),
+                                "summary": _row.get("fault_orig") or _row.get("fault", ""),
+                                "detail": _row.get("detail", ""),
+                            }
+                        )
                         pool_srs.add(_sr)
         except Exception:
             pass  # fall back to db pool silently
 
-        new_count   = 0
+        new_count = 0
         alert_count = 0
         for r in rows:
             sr = (r.get("sr") or "").strip()
@@ -132,14 +137,14 @@ def run_tick(sources: SourceManager) -> dict:
                 continue
             inserted = db.upsert_sr(
                 sr,
-                reported = r.get("reported", ""),
-                status   = r.get("status",   ""),
-                location = r.get("location", ""),
-                asset    = r.get("asset",    ""),
-                summary  = r.get("summary",  ""),
-                detail   = r.get("detail",   ""),
-                payload  = r.get("_raw", {}),
-                source   = source,
+                reported=r.get("reported", ""),
+                status=r.get("status", ""),
+                location=r.get("location", ""),
+                asset=r.get("asset", ""),
+                summary=r.get("summary", ""),
+                detail=r.get("detail", ""),
+                payload=r.get("_raw", {}),
+                source=source,
             )
             if not inserted:
                 continue  # already seen
@@ -147,42 +152,56 @@ def run_tick(sources: SourceManager) -> dict:
 
             # Score against the pre-tick open pool
             matches = find_matches(
-                r, pool,
-                min_score = CFG.min_score,
-                max_days  = CFG.max_days,
+                r,
+                pool,
+                min_score=CFG.min_score,
+                max_days=CFG.max_days,
             )
             for m in matches:
                 if m["score"] < CFG.alert_score:
                     continue
                 ex = m["match"]
                 added = db.add_alert(
-                    new_sr   = sr,
-                    match_sr = ex["sr"],
-                    score    = m["score"],
-                    reasons  = m["reasons"],
-                    new_meta = {
-                        "summary":  r.get("summary",  ""),
+                    new_sr=sr,
+                    match_sr=ex["sr"],
+                    score=m["score"],
+                    reasons=m["reasons"],
+                    new_meta={
+                        "summary": r.get("summary", ""),
                         "location": r.get("location", ""),
-                        "detail":   r.get("detail",   ""),
+                        "detail": r.get("detail", ""),
                     },
-                    match_meta = {
-                        "summary":  ex.get("summary",  ""),
+                    match_meta={
+                        "summary": ex.get("summary", ""),
                         "location": ex.get("location", ""),
                     },
                 )
                 if added:
                     alert_count += 1
-                    log.info("ALERT created | new=%s ~ %s | score=%d (%s)",
-                             sr, ex["sr"], m["score"],
-                             " · ".join(m["reasons"]))
+                    log.info(
+                        "ALERT created | new=%s ~ %s | score=%d (%s)",
+                        sr,
+                        ex["sr"],
+                        m["score"],
+                        " · ".join(m["reasons"]),
+                    )
 
-        summary["new"]    = new_count
+        summary["new"] = new_count
         summary["alerts"] = alert_count
-        db.finish_poll(poll_id, success=True,
-                       sr_fetched=len(rows), sr_new=new_count,
-                       alerts_created=alert_count)
-        log.info("Tick OK | source=%s | fetched=%d | new=%d | alerts=%d",
-                 source, len(rows), new_count, alert_count)
+        db.finish_poll(
+            poll_id,
+            success=True,
+            sr_fetched=len(rows),
+            sr_new=new_count,
+            alerts_created=alert_count,
+        )
+        log.info(
+            "Tick OK | source=%s | fetched=%d | new=%d | alerts=%d",
+            source,
+            len(rows),
+            new_count,
+            alert_count,
+        )
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
@@ -218,16 +237,16 @@ def main_loop():
     # When poller runs as a daemon thread (e.g. `run both`), the parent
     # process owns SIGINT and the thread just dies when the dashboard exits.
     if threading.current_thread() is threading.main_thread():
-        signal.signal(signal.SIGINT,  _on_signal)
+        signal.signal(signal.SIGINT, _on_signal)
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, _on_signal)
 
     _consec_failures = 0
-    _BACKOFF_STEPS   = [1, 2, 4, 8, 16, 32]  # multipliers × poll_interval_sec
-    _last_scan_time  = 0.0   # monotonic timestamp of last full scan
+    _BACKOFF_STEPS = [1, 2, 4, 8, 16, 32]  # multipliers × poll_interval_sec
+    _last_scan_time = 0.0  # monotonic timestamp of last full scan
 
     while not _STOP:
-        t0      = time.monotonic()
+        t0 = time.monotonic()
         summary = run_tick(sources)
         elapsed = time.monotonic() - t0
 
@@ -236,22 +255,20 @@ def main_loop():
             # After the first failure we log normally; subsequent identical
             # failures only get a short "still failing" note so the log stays
             # readable instead of accumulating hundreds of identical lines.
-            multiplier = _BACKOFF_STEPS[min(_consec_failures - 1,
-                                            len(_BACKOFF_STEPS) - 1)]
-            sleep_for  = min(
+            multiplier = _BACKOFF_STEPS[min(_consec_failures - 1, len(_BACKOFF_STEPS) - 1)]
+            sleep_for = min(
                 CFG.poll_interval_sec * multiplier,
-                3600,   # cap at 1 hour
+                3600,  # cap at 1 hour
             )
             if _consec_failures > 1:
                 log.warning(
-                    "Still failing (consecutive=%d). "
-                    "Backing off %ds before next attempt.",
-                    _consec_failures, sleep_for,
+                    "Still failing (consecutive=%d). Backing off %ds before next attempt.",
+                    _consec_failures,
+                    sleep_for,
                 )
         else:
             if _consec_failures > 0:
-                log.info("Recovered after %d consecutive failures.",
-                         _consec_failures)
+                log.info("Recovered after %d consecutive failures.", _consec_failures)
             _consec_failures = 0
             sleep_for = max(5, CFG.poll_interval_sec - elapsed)
 

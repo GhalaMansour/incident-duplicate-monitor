@@ -13,6 +13,7 @@ Subcommands:
 
 Run ``python -m duplicate_monitor --help`` for the full argument list.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -147,9 +148,7 @@ def cmd_diag() -> None:
 
     db.init_db()
     print(f"\nDatabase initialised at {CFG.db_path}")
-    print(
-        f"   seen={db.count_seen()} | alerts_open={db.alert_counts().get('open', 0)}"
-    )
+    print(f"   seen={db.count_seen()} | alerts_open={db.alert_counts().get('open', 0)}")
 
 
 def main() -> None:

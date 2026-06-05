@@ -9,6 +9,7 @@ The bulk batch detector (legacy.detect) is used by the full-scan path;
 the engine here uses the same scoring vocabulary expressed via the
 public helpers in `matching.normalize` and `matching.scorer`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,11 +30,12 @@ _DT_PATTERNS = [
     "%Y-%m-%dT%H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
     "%Y/%m/%d %H:%M:%S",
-    "%m/%d/%y %I:%M %p",     # Excel: "5/16/26 7:53 PM"
+    "%m/%d/%y %I:%M %p",  # Excel: "5/16/26 7:53 PM"
     "%m/%d/%Y %I:%M %p",
     "%d/%m/%Y %H:%M",
     "%Y-%m-%d",
 ]
+
 
 def _parse_dt(raw: str) -> Optional[datetime]:
     """Parse a datetime string and always return a timezone-naive object."""
@@ -52,6 +54,7 @@ def _parse_dt(raw: str) -> Optional[datetime]:
     # last resort: pandas-style fallback
     try:
         import pandas as pd
+
         v = pd.to_datetime(raw, errors="coerce")
         if v is not None and str(v) != "NaT":
             dt = v.to_pydatetime()  # type: ignore[union-attr]
@@ -71,6 +74,7 @@ def _fault_blocking(summary: str) -> str:
 
 # ─── Scoring — mirrors find_duplicates.detect() per-pair logic ────────────
 
+
 def score_pair(new: dict, existing: dict, *, max_days: int = 2) -> Optional[dict]:
     """
     Returns {score, reasons, classification} if the pair is a candidate,
@@ -88,9 +92,11 @@ def score_pair(new: dict, existing: dict, *, max_days: int = 2) -> Optional[dict
         if gap_days > max_days:
             return None
         if d1.date() == d2.date():
-            score += 2; reasons.append("نفس اليوم")
+            score += 2
+            reasons.append("نفس اليوم")
         elif gap_days <= 7:
-            score += 1; reasons.append("نفس الأسبوع")
+            score += 1
+            reasons.append("نفس الأسبوع")
 
     # ── Fault (last 2 parts of Summary) ───────────────────────────
     f1 = _normalize_ar(_fault_blocking(new.get("summary", "")))
@@ -133,24 +139,29 @@ def score_pair(new: dict, existing: dict, *, max_days: int = 2) -> Optional[dict
         return None
 
     return {
-        "score":          score,
-        "reasons":        reasons,
+        "score": score,
+        "reasons": reasons,
         "classification": classification,
     }
 
 
 # ─── Top-level check for a new SR against a pool ──────────────────────────
 
-def find_matches(new_sr: dict, pool: list[dict], *,
-                 min_score: Optional[int] = None,
-                 max_days: Optional[int]  = None) -> list[dict]:
+
+def find_matches(
+    new_sr: dict,
+    pool: list[dict],
+    *,
+    min_score: Optional[int] = None,
+    max_days: Optional[int] = None,
+) -> list[dict]:
     """
     Score the new SR against every open SR in `pool` and return matches
     with score ≥ min_score, sorted descending. Each match dict adds the
     matched-pool row under "match".
     """
     min_s = min_score if min_score is not None else CFG.min_score
-    max_d = max_days  if max_days  is not None else CFG.max_days
+    max_d = max_days if max_days is not None else CFG.max_days
 
     matches: list[dict] = []
     new_sr_id = new_sr.get("sr", "")

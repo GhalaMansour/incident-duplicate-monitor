@@ -7,15 +7,15 @@ Three tables:
 
 Single-file DB at live_monitor/monitor.db — safe to delete to reset.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Iterable, Optional
+from datetime import UTC, datetime
+from typing import Any, Optional
 
 from duplicate_monitor.core.config import CFG
 
@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_poll_time ON poll_history(started_at);
 
 
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 @contextmanager
@@ -106,10 +106,19 @@ def init_db() -> None:
 
 # ─── sr_seen ──────────────────────────────────────────────────────────────────
 
-def upsert_sr(sr: str, *, reported: str = "", status: str = "",
-              location: str = "", asset: str = "", summary: str = "",
-              detail: str = "", payload: Optional[dict] = None,
-              source: str = "unknown") -> bool:
+
+def upsert_sr(
+    sr: str,
+    *,
+    reported: str = "",
+    status: str = "",
+    location: str = "",
+    asset: str = "",
+    summary: str = "",
+    detail: str = "",
+    payload: Optional[dict] = None,
+    source: str = "unknown",
+) -> bool:
     """Insert if new. Returns True if this SR is freshly seen."""
     with _conn() as c:
         row = c.execute("SELECT 1 FROM sr_seen WHERE sr=?", (sr,)).fetchone()
@@ -119,8 +128,18 @@ def upsert_sr(sr: str, *, reported: str = "", status: str = "",
             "INSERT INTO sr_seen "
             "(sr, first_seen, reported, status, location, asset, summary, detail, payload_json, source) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (sr, _now_utc(), reported, status, location, asset, summary, detail,
-             json.dumps(payload or {}, ensure_ascii=False), source),
+            (
+                sr,
+                _now_utc(),
+                reported,
+                status,
+                location,
+                asset,
+                summary,
+                detail,
+                json.dumps(payload or {}, ensure_ascii=False),
+                source,
+            ),
         )
         return True
 
@@ -146,7 +165,7 @@ def open_srs() -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM sr_seen WHERE UPPER(IFNULL(status,'')) NOT IN "
-            f"({','.join(['?']*len(closed))}) "
+            f"({','.join(['?'] * len(closed))}) "
             "ORDER BY reported DESC",
             closed,
         ).fetchall()
@@ -155,8 +174,10 @@ def open_srs() -> list[dict]:
 
 # ─── alerts ───────────────────────────────────────────────────────────────────
 
-def add_alert(new_sr: str, match_sr: str, score: int, reasons: list[str],
-              new_meta: dict, match_meta: dict) -> Optional[int]:
+
+def add_alert(
+    new_sr: str, match_sr: str, score: int, reasons: list[str], new_meta: dict, match_meta: dict
+) -> Optional[int]:
     """Returns new alert ID, or None if duplicate (already alerted)."""
     with _conn() as c:
         try:
@@ -166,11 +187,18 @@ def add_alert(new_sr: str, match_sr: str, score: int, reasons: list[str],
                 " new_summary, new_location, new_detail, "
                 " match_summary, match_location) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (_now_utc(), new_sr, match_sr, score,
-                 " · ".join(reasons or []),
-                 new_meta.get("summary", ""),  new_meta.get("location", ""),
-                 (new_meta.get("detail", "") or "")[:1000],
-                 match_meta.get("summary", ""), match_meta.get("location", "")),
+                (
+                    _now_utc(),
+                    new_sr,
+                    match_sr,
+                    score,
+                    " · ".join(reasons or []),
+                    new_meta.get("summary", ""),
+                    new_meta.get("location", ""),
+                    (new_meta.get("detail", "") or "")[:1000],
+                    match_meta.get("summary", ""),
+                    match_meta.get("location", ""),
+                ),
             )
             return cur.lastrowid
         except sqlite3.IntegrityError:
@@ -181,23 +209,30 @@ def list_alerts(state: Optional[str] = None, limit: int = 200) -> list[dict]:
     q = "SELECT * FROM alerts"
     args: list[Any] = []
     if state:
-        q += " WHERE state=?"; args.append(state)
-    q += " ORDER BY detected_at DESC LIMIT ?"; args.append(limit)
+        q += " WHERE state=?"
+        args.append(state)
+    q += " ORDER BY detected_at DESC LIMIT ?"
+    args.append(limit)
     with _conn() as c:
         rows = c.execute(q, args).fetchall()
         return [dict(r) for r in rows]
 
 
-def update_alert(alert_id: int, *, decision: str = "", note: str = "",
-                 state: Optional[str] = None) -> None:
+def update_alert(
+    alert_id: int, *, decision: str = "", note: str = "", state: Optional[str] = None
+) -> None:
     fields, args = [], []
     if decision:
-        fields.append("decision=?"); args.append(decision)
-        fields.append("decided_at=?"); args.append(_now_utc())
+        fields.append("decision=?")
+        args.append(decision)
+        fields.append("decided_at=?")
+        args.append(_now_utc())
     if note:
-        fields.append("note=?"); args.append(note)
+        fields.append("note=?")
+        args.append(note)
     if state:
-        fields.append("state=?"); args.append(state)
+        fields.append("state=?")
+        args.append(state)
     if not fields:
         return
     args.append(alert_id)
@@ -207,13 +242,12 @@ def update_alert(alert_id: int, *, decision: str = "", note: str = "",
 
 def alert_counts() -> dict:
     with _conn() as c:
-        rows = c.execute(
-            "SELECT state, COUNT(*) AS n FROM alerts GROUP BY state"
-        ).fetchall()
+        rows = c.execute("SELECT state, COUNT(*) AS n FROM alerts GROUP BY state").fetchall()
         return {r["state"]: int(r["n"]) for r in rows}
 
 
 # ─── poll_history ─────────────────────────────────────────────────────────────
+
 
 def start_poll(source: str) -> int:
     with _conn() as c:
@@ -224,15 +258,28 @@ def start_poll(source: str) -> int:
         return cur.lastrowid
 
 
-def finish_poll(poll_id: int, *, success: bool, sr_fetched: int = 0,
-                sr_new: int = 0, alerts_created: int = 0,
-                error: str = "") -> None:
+def finish_poll(
+    poll_id: int,
+    *,
+    success: bool,
+    sr_fetched: int = 0,
+    sr_new: int = 0,
+    alerts_created: int = 0,
+    error: str = "",
+) -> None:
     with _conn() as c:
         c.execute(
             "UPDATE poll_history SET finished_at=?, success=?, sr_fetched=?, "
             "sr_new=?, alerts_created=?, error=? WHERE id=?",
-            (_now_utc(), 1 if success else 0, sr_fetched, sr_new,
-             alerts_created, error[:500], poll_id),
+            (
+                _now_utc(),
+                1 if success else 0,
+                sr_fetched,
+                sr_new,
+                alerts_created,
+                error[:500],
+                poll_id,
+            ),
         )
 
 
@@ -248,9 +295,7 @@ def recent_polls(limit: int = 30) -> list[dict]:
 def health_summary() -> dict:
     """One-glance health for the dashboard banner."""
     with _conn() as c:
-        last = c.execute(
-            "SELECT * FROM poll_history ORDER BY started_at DESC LIMIT 1"
-        ).fetchone()
+        last = c.execute("SELECT * FROM poll_history ORDER BY started_at DESC LIMIT 1").fetchone()
         ok24 = c.execute(
             "SELECT COUNT(*) AS n FROM poll_history WHERE success=1 "
             "AND started_at >= datetime('now','-1 day')"
@@ -260,7 +305,7 @@ def health_summary() -> dict:
             "AND started_at >= datetime('now','-1 day')"
         ).fetchone()
     return {
-        "last_poll":  dict(last) if last else None,
-        "ok_24h":     int(ok24["n"]) if ok24 else 0,
-        "fail_24h":   int(fail24["n"]) if fail24 else 0,
+        "last_poll": dict(last) if last else None,
+        "ok_24h": int(ok24["n"]) if ok24 else 0,
+        "fail_24h": int(fail24["n"]) if fail24 else 0,
     }

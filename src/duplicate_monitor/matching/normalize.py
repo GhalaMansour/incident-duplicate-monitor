@@ -11,6 +11,7 @@ The implementations were lifted from the original
 underscore-prefixed names to public ones since they are now the
 documented public API of this module.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,10 +41,7 @@ def strip_html(text: str) -> str:
     text = _HTML_COMMENT_RE.sub(" ", text)
     text = _HTML_TAG_RE.sub(" ", text)
     text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
+        text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
     )
     return re.sub(r"\s+", " ", text).strip()
 

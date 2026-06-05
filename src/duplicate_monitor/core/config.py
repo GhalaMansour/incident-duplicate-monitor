@@ -7,13 +7,13 @@ environment win.
 
 The configuration is exposed as the module-level singleton :data:`CFG`.
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-
 
 # Resolve the package directory once. On-disk artifacts (db, log, pkl)
 # default to live next to the package so the service has no dependency
@@ -59,12 +59,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
 class Config:
     # Maximo connection
     maximo_base_url: str = field(default_factory=lambda: _env("MAXIMO_BASE_URL"))
-    maximo_user: str = field(
-        default_factory=lambda: _env("MAXIMO_USER") or _env("MAXIMO_USERNAME")
-    )
-    maximo_pass: str = field(
-        default_factory=lambda: _env("MAXIMO_PASS") or _env("MAXIMO_PASSWORD")
-    )
+    maximo_user: str = field(default_factory=lambda: _env("MAXIMO_USER") or _env("MAXIMO_USERNAME"))
+    maximo_pass: str = field(default_factory=lambda: _env("MAXIMO_PASS") or _env("MAXIMO_PASSWORD"))
     maximo_site_id: str = field(default_factory=lambda: _env("MAXIMO_SITE_ID"))
 
     # Polling behaviour
@@ -86,9 +82,7 @@ class Config:
     quick_scan_sec: int = field(default_factory=lambda: _env_int("LM_QUICK_SCAN_SEC", 15))
     scan_interval_sec: int = field(default_factory=lambda: _env_int("LM_SCAN_SEC", 300))
     open_statuses: str = field(
-        default_factory=lambda: _env(
-            "LM_OPEN_STATUSES", "OPEN,NEW,QUEUED,INPRG,WPCOND,WAPPR,WMATL"
-        )
+        default_factory=lambda: _env("LM_OPEN_STATUSES", "OPEN,NEW,QUEUED,INPRG,WPCOND,WAPPR,WMATL")
     )
     scan_start_date: str = field(default_factory=lambda: _env("LM_SCAN_START_DATE", ""))
     scan_end_date: str = field(default_factory=lambda: _env("LM_SCAN_END_DATE", ""))
@@ -97,9 +91,7 @@ class Config:
     full_scan_days: int = field(default_factory=lambda: _env_int("LM_FULL_SCAN_DAYS", 2))
     # Hard cap on page count for fetch_all. At 200 rows per page, 15 pages
     # covers the 3000 most recent SRs; raise for deeper historical scans.
-    full_scan_max_pages: int = field(
-        default_factory=lambda: _env_int("LM_FULL_SCAN_MAX_PAGES", 15)
-    )
+    full_scan_max_pages: int = field(default_factory=lambda: _env_int("LM_FULL_SCAN_MAX_PAGES", 15))
 
     # Storage — all under the package directory by default
     db_path: Path = field(default_factory=lambda: PACKAGE_DIR / "monitor.db")

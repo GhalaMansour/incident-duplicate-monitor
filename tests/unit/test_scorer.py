@@ -1,4 +1,5 @@
 """Tests for the duplicate scorer."""
+
 from __future__ import annotations
 
 from datetime import datetime

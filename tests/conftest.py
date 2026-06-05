@@ -1,4 +1,5 @@
 """Shared pytest fixtures for the duplicate monitor test suite."""
+
 from __future__ import annotations
 
 import pytest
