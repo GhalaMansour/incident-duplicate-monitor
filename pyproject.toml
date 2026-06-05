@@ -70,6 +70,7 @@ ignore = [
     "UP007", # Optional[X] is still preferred for clarity in some signatures
     "UP045", # likewise
     "UP006", # `dict[X]` vs `Dict[X]` - allow both
+    "UP042", # `class X(str, Enum)` works on every supported runtime; StrEnum is 3.11+ only
     "F841",  # unused local variables; the bulk detector creates documentation-only variables
 ]
 
