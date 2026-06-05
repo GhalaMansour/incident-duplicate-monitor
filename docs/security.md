@@ -75,9 +75,13 @@ requests do not request PII fields.
 
 - Runtime dependencies use compatible release specifiers. Major
   versions are reviewed manually.
-- CodeQL runs on every pull request.
-- Dependabot is recommended at the repository settings level for
+- The `ruff` static analysis pass on every pull request catches the
+  most common security smells.
+- **Dependabot** is recommended at the repository settings level for
   monthly version-bump pull requests.
+- **GitHub Advanced Security with CodeQL** is recommended once the
+  GHAS license is provisioned for this repository. The workflow can
+  be reintroduced under `.github/workflows/codeql.yml` at that point.
 
 ## Future improvements
 
