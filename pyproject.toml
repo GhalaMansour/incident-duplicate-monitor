@@ -58,6 +58,13 @@ duplicate_monitor = [
 line-length = 100
 target-version = "py311"
 src = ["src"]
+extend-exclude = [
+    # Legacy modules carried over from the monorepo. They are functional
+    # but pre-date the project's formatting standards; they remain stable
+    # and are not auto-formatted until each is refactored.
+    "src/duplicate_monitor/matching/legacy.py",
+    "src/duplicate_monitor/web/app.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
