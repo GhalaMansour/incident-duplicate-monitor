@@ -20,13 +20,10 @@ Live duplicate-detection service for Kidana Maximo service requests.
 8. [Running the Service](#running-the-service)
 9. [Dashboard Guide](#dashboard-guide)
 10. [Testing](#testing)
-11. [Deployment](#deployment)
-12. [Security](#security)
-13. [Operations and Troubleshooting](#operations-and-troubleshooting)
-14. [Future Improvements](#future-improvements)
-15. [Contributing](#contributing)
-16. [License](#license)
-17. [Sources and References](#sources-and-references)
+11. [Security](#security)
+12. [Operations and Troubleshooting](#operations-and-troubleshooting)
+13. [License](#license)
+14. [Sources and References](#sources-and-references)
 
 ---
 
@@ -149,23 +146,47 @@ and the exact implementation locations.
 
 ## Scoring Algorithm
 
-Each candidate pair of SRs is scored using four signals (see
+Each candidate pair of SRs goes through three stages (see
 [`docs/scoring_algorithm.md`](docs/scoring_algorithm.md) for the full
 treatment):
 
-1. **Template similarity** — the description with numbers stripped is
-   sequence-matched. >= 90% means the boilerplate matches; >= 80% means
-   the description is similar.
-2. **Numeric overlap** — the actual numbers (asset ids, signpost
-   references, areas) in the description.
-3. **Token similarity** — bag-of-tokens with fuzzy containment for
-   short reports that say the same thing with additional context.
-4. **Time gap** — same-day +3, next-day +2, two days +1.
+**1. Blocking.** Pairs are grouped by `(location, fault)`. Anything
+that doesn't share both is dropped before scoring.
+
+**2. Text classification.** Three measurements are computed:
+`template_pct` (sentence structure with numbers replaced by `#`),
+`token_pct` (word overlap), and `numbers_overlap` (Jaccard on the raw
+numbers). The classifier then evaluates these rules **in order** and
+returns the first match:
+
+1. **`identical` (+5)** — `max(template_pct, token_pct) ≥ 90%` **and**
+   `numbers_overlap ≥ 50%`.
+2. **`template_only` (0, warning)** — `template_pct ≥ 90%` **and**
+   `numbers_overlap < 30%` **and** `token_pct < 80%`. Same boilerplate
+   filled with different content — different incident.
+3. **`similar` (+3)** — `max(template_pct, token_pct) ≥ 90%` and rules
+   1–2 did not match.
+4. **`different` (0, pair dropped)** — anything below 90%.
+
+**3. Aggregate score.** Points are added across signals:
+
+| Signal | Points |
+|---|---|
+| Same location | +4 |
+| Same fault | +3 |
+| Same asset (when distinct from location) | +4 |
+| Text class | +5 / +3 / 0 |
+| Same requestor number | +2 |
+| Same day / next day / two days | +3 / +2 / +1 |
 
 A pair must exceed `LM_MIN_SCORE` (default 7) to be retained and
-`LM_ALERT_SCORE` (default 8) to raise an alert. The algorithm is
-implemented in `src/duplicate_monitor/matching/scorer.py` with the
-bulk grouping pass in `src/duplicate_monitor/matching/legacy.py`.
+`LM_ALERT_SCORE` (default 8) to raise an alert. Surviving pairs are
+collapsed into groups via Union-Find so transitive duplicates (A↔B
+and B↔C) end up in the same group.
+
+Implementation: `src/duplicate_monitor/matching/scorer.py` (per-pair),
+`src/duplicate_monitor/matching/legacy.py` (bulk + grouping),
+`src/duplicate_monitor/matching/engine.py` (live single-SR path).
 
 ---
 
@@ -281,18 +302,6 @@ against a recorded Maximo response fixture.
 
 ---
 
-## Deployment
-
-See [`docs/deployment.md`](docs/deployment.md) for the full guide
-covering:
-
-- Render (managed) via the included `render.yaml`.
-- Docker / Docker Compose.
-- On-premise (uvicorn behind nginx with systemd).
-- Production secrets management.
-
----
-
 ## Security
 
 The security posture is documented in detail in
@@ -317,26 +326,6 @@ The security posture is documented in detail in
 | Dashboard shows stale data | Poller stopped | Inspect `monitor.log`; restart the service |
 | Group count keeps oscillating | Window too narrow against arrival rate | Raise `LM_FULL_SCAN_DAYS` and `LM_FULL_SCAN_MAX_PAGES` |
 | False positives on boilerplate descriptions | Template-only matches | Raise `LM_MIN_SCORE`; check `scoring_algorithm.md` for the template-only rule |
-
----
-
-## Future Improvements
-
-| Priority | Item | Rationale |
-|---------|------|-----------|
-| High | Managed secrets backend (Azure Key Vault / AWS Secrets Manager) | Reduce `.env` exposure risk |
-| High | First-class authentication for dashboard callers | Currently network-trust |
-| Medium | Email and Slack notification channels for new alerts | Reach reviewers outside the dashboard |
-| Medium | Score-explainability panel in the dashboard | Make false-positive review faster |
-| Medium | Configurable scorer weights | Tune to the specific operational tradeoff |
-| Low | Postgres backend option | Multi-instance / centralized historical store |
-
----
-
-## Contributing
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the coding standards,
-review process, and how to run the pre-commit checks locally.
 
 ---
 

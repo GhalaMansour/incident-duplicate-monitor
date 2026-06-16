@@ -104,28 +104,44 @@ Two design choices in the blocking:
 
 ## Step 3: Smart text comparison
 
-`smart_text_compare` returns `(classification, points, template_pct)`
-based on two independent measurements:
+`smart_text_compare` returns `(classification, points, final_pct)`
+based on **three** independent measurements computed on the two
+descriptions:
 
-1. **Template similarity** — the description with numbers replaced by
-   `#` is sequence-matched against the other description's template.
-2. **Numeric overlap** — the Jaccard similarity of the number sets
-   extracted from the original descriptions.
+| Measurement | What it captures |
+|---|---|
+| `template_pct` | Sentence structure — the description with numbers replaced by `#`, sequence-matched. Catches "same boilerplate" even when numbers differ. |
+| `token_pct` | Word content — bag-of-tokens with fuzzy containment. Catches "same words" even when ordering differs. |
+| `numbers_overlap` | Jaccard similarity of the raw numbers in the two descriptions. |
 
-The classification logic:
+The pipeline then computes `final_pct = max(template_pct, token_pct)` —
+the overall similarity, taken as whichever of the two measurements is
+stronger.
 
-| Template | Numbers | Classification | Points |
-|---------|--------|----------------|--------|
-| `>= 90%` | `>= 50%` | `identical` | +5 |
-| `>= 90%` | `< 30%` and token sim `< 80%` | `template_only` | +0 (with warning) |
-| `>= 80%` | (any) | `similar` | +3 |
-| `< 80%` | (any) | `different` | 0 |
+### Classification (decision order)
 
-The `template_only` class is the most operationally important: it
-catches the case where two crews report the same boilerplate (for
-example, "تسرب في شبكة المياه عند المربع") for genuinely different
-locations or assets. The score is 0 but the dashboard surfaces a
-warning so the reviewer knows.
+The implementation evaluates these checks **in order**. The first one
+that matches decides the class.
+
+1. **`identical` → +5 points.** `final_pct ≥ 90%` **and**
+   `numbers_overlap ≥ 50%`. The two SRs describe the same incident
+   with the same asset/grid references.
+2. **`template_only` → 0 points (warning only).** `template_pct ≥ 90%`
+   **and** `numbers_overlap < 30%` **and** `token_pct < 80%`. The
+   sentence structure matches but the actual words and the numbers
+   both diverge — same phrasing template applied to a different
+   incident (for example, "تسرب في شبكة المياه عند المربع 5" vs
+   "تسرب في شبكة المياه عند المربع 47"). The dashboard flags it for
+   the reviewer.
+3. **`similar` → +3 points.** `final_pct ≥ 90%` and the pair did not
+   match either rule above. Same wording or same content with
+   ambiguous numeric overlap.
+4. **`different` → 0 points, pair dropped.** Anything that does not
+   reach `final_pct ≥ 90%`.
+
+The `template_only` class is the most operationally important: without
+it, boilerplate descriptions would drive false positives during peak
+hours.
 
 ## Step 4: Per-pair scoring
 
