@@ -39,6 +39,45 @@ if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
 
+# ── Auth gate ─────────────────────────────────────────────────────────────
+# Every page and API endpoint requires a valid session, with the obvious
+# exceptions: the login page itself and its supporting POST endpoint,
+# the static assets, and the lightweight ``/api/me`` probe the login
+# page uses to decide whether to bounce to the dashboard. Anything else
+# returns 302 to /login (for HTML requests) or 401 (for API calls).
+_AUTH_ALLOWLIST = frozenset(
+    {
+        "/login",
+        "/api/login",
+        "/api/me",
+        "/healthz",
+    }
+)
+
+
+@app.middleware("http")
+async def _require_session(request, call_next):
+    from duplicate_monitor.web.auth import get_current_user
+
+    path = request.url.path
+    # Bypass for the allowlist and any static asset.
+    if path in _AUTH_ALLOWLIST or path.startswith("/static/"):
+        return await call_next(request)
+
+    if get_current_user(request):
+        return await call_next(request)
+
+    # Unauthenticated: HTML requests go to /login, JSON callers get 401
+    # so the browser's fetch() handler can react.
+    accept = request.headers.get("accept", "")
+    if path.startswith("/api/") or "application/json" in accept:
+        return JSONResponse(
+            {"authenticated": False, "message": "تسجيل الدخول مطلوب."},
+            status_code=401,
+        )
+    return Response(status_code=302, headers={"Location": "/login"})
+
+
 @app.on_event("startup")
 async def _auto_scan_on_start():
     """On startup: scan immediately if stale, then start periodic background loop."""
@@ -437,6 +476,8 @@ def api_scan():
 
 @app.post("/api/decision")
 async def api_decision(request: Request):
+    from duplicate_monitor.web.auth import get_current_user
+
     body = await request.json()
     gid = body.get("gid", "").strip()
     decision = body.get("decision", "").strip()  # duplicate|different|""
@@ -445,6 +486,8 @@ async def api_decision(request: Request):
 
     if not gid or decision not in ("duplicate", "different", ""):
         raise HTTPException(400, "invalid")
+
+    by = get_current_user(request) or ""
 
     d = _load_dec()
     if decision == "":
@@ -458,6 +501,7 @@ async def api_decision(request: Request):
                 "srs": srs,
                 "decision": decision,
                 "note": note,
+                "by": by,
                 "ts": datetime.now().isoformat(timespec="seconds"),
             }
         )
@@ -467,6 +511,7 @@ async def api_decision(request: Request):
         d[gid] = {
             "decision": decision,
             "note": note,
+            "by": by,
             "ts": datetime.now().isoformat(timespec="seconds"),
         }
     _save_dec(d)
@@ -1497,67 +1542,6 @@ def _run_file_scan(path: Path) -> dict:
     }
 
 
-# ── Maximo settings — non-technical operators configure from the UI ───────
-
-
-@app.get("/api/settings")
-def api_settings_get():
-    """Return the Maximo settings the form should pre-fill.
-
-    The password is never returned — only a flag indicating whether one
-    is currently stored, so the form can show a placeholder like
-    "اتركها فاضية للإبقاء على الحالية".
-    """
-    from duplicate_monitor.storage import settings as _settings
-
-    return JSONResponse(_settings.get_for_display())
-
-
-@app.post("/api/settings")
-async def api_settings_post(request: Request):
-    """Persist Maximo settings from the dashboard form and test the
-    new connection in one round trip."""
-    from duplicate_monitor.sources.maximo import MaximoSource, MaximoSourceError
-    from duplicate_monitor.storage import settings as _settings
-
-    try:
-        data = await request.json()
-    except Exception:
-        raise HTTPException(400, "نص الطلب ليس JSON صالحاً")
-
-    url = (data.get("maximo_base_url") or "").strip()
-    user = (data.get("maximo_user") or "").strip()
-    password = data.get("maximo_pass") or ""
-
-    if not url or not user:
-        raise HTTPException(400, "الرجاء تعبئة رابط Maximo واسم المستخدم.")
-
-    _settings.save_from_form(
-        maximo_base_url=url,
-        maximo_user=user,
-        maximo_pass=password,
-    )
-
-    # Live connection probe so the form's "Save & Test" button gives an
-    # immediate verdict instead of silently committing wrong credentials.
-    try:
-        rows = MaximoSource().fetch_recent(lookback_minutes=10)
-        return JSONResponse(
-            {
-                "ok": True,
-                "message": f"تم الحفظ — Maximo متاح وأرجع {len(rows)} بلاغ في آخر 10 دقائق.",
-            }
-        )
-    except MaximoSourceError as exc:
-        return JSONResponse(
-            {
-                "ok": False,
-                "message": f"تم الحفظ، لكن فشل الاتصال بـ Maximo: {exc}",
-            },
-            status_code=200,  # 200 because save itself succeeded
-        )
-
-
 @app.post("/api/upload")
 async def api_upload(file: UploadFile = File(...)):
     name = file.filename or ""
@@ -1638,115 +1622,187 @@ def index():
     return HTMLResponse(_HTML, headers={"Cache-Control": "no-store"})
 
 
-_SETTINGS_HTML = r"""<!DOCTYPE html>
+_LOGIN_HTML = r"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>إعدادات الاتصال بـ Maximo</title>
+<title>تسجيل الدخول · منظومة جودة البلاغات — كدانة مالك</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Tahoma','Segoe UI',Arial,sans-serif;background:#f5f3ef;color:#2a2a2a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;line-height:1.6}
-.card{background:#fff;border:1px solid #e3ddc9;border-radius:14px;padding:36px 40px;max-width:520px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.06)}
-h1{font-size:22px;font-weight:700;margin-bottom:8px;color:#1a1a1a}
-.subtitle{font-size:13px;color:#666;margin-bottom:28px}
-label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#333}
-input{width:100%;padding:10px 12px;border:1.5px solid #d9d3c1;border-radius:8px;font-size:14px;font-family:inherit;background:#fafaf7;transition:border-color .15s,background .15s;direction:ltr;text-align:left}
-input:focus{outline:none;border-color:#b9975b;background:#fff}
+:root{
+  --gold:#b9975b; --gold-dark:#9c7e44; --gold-soft:#e8dcb8;
+  --sand:#f5f0e3; --cream:#fbf8f0; --ink:#2a2316;
+  --muted:#7a6e5b; --line:#dccfb1;
+  --err:#a4382b; --err-bg:#fbe9e6;
+  --ok:#286a3f;  --ok-bg:#e8f4ec;
+}
+html,body{height:100%}
+body{
+  font-family:'Tahoma','Segoe UI',Arial,sans-serif;
+  color:var(--ink); min-height:100vh; line-height:1.6;
+  background:
+    radial-gradient(ellipse at top right, rgba(185,151,91,.14), transparent 55%),
+    radial-gradient(ellipse at bottom left, rgba(185,151,91,.10), transparent 50%),
+    linear-gradient(135deg,#f8f4e9 0%, #efe6d0 100%);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  overflow-x:hidden;
+}
+.bg-pattern{
+  position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(185,151,91,.04) 0 1px, transparent 1px 60px),
+    repeating-linear-gradient(-45deg, rgba(185,151,91,.03) 0 1px, transparent 1px 60px);
+}
+.wrap{
+  position:relative; z-index:1;
+  display:grid; grid-template-columns:1.05fr 1fr;
+  width:100%; max-width:980px; min-height:560px;
+  background:#fff; border:1px solid var(--gold-soft); border-radius:22px;
+  box-shadow:0 22px 60px -22px rgba(60,42,15,.32), 0 4px 14px rgba(60,42,15,.08);
+  overflow:hidden;
+}
+.brand{
+  position:relative;
+  background:linear-gradient(160deg, #34281a 0%, #4a3924 55%, #6b5232 100%);
+  color:#f6efde; padding:48px 40px; display:flex; flex-direction:column; justify-content:space-between;
+}
+.brand::before{
+  content:""; position:absolute; inset:0;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(231,201,135,.20), transparent 45%),
+    radial-gradient(ellipse at 100% 100%, rgba(231,201,135,.14), transparent 50%);
+  pointer-events:none;
+}
+.brand-top{position:relative;z-index:1}
+.brand-mark{display:flex; align-items:center; gap:12px; margin-bottom:32px}
+.brand-mark .glyph{
+  width:46px; height:46px; border-radius:12px; background:linear-gradient(135deg,var(--gold) 0%, #d6b87a 100%);
+  display:flex; align-items:center; justify-content:center;
+  font-weight:900; font-size:22px; color:#3a2c17; box-shadow:0 6px 14px rgba(0,0,0,.25);
+}
+.brand-mark .name{font-size:18px; font-weight:800; letter-spacing:.5px}
+.brand-mark .name small{display:block; font-weight:500; font-size:11.5px; color:#dcc99a; margin-top:2px}
+.brand h1{position:relative; z-index:1; font-size:30px; font-weight:800; line-height:1.35; margin-bottom:14px}
+.brand h1 .accent{color:#e9c787}
+.brand p.tag{position:relative; z-index:1; font-size:14px; color:#e6d8b6; max-width:360px}
+.brand-foot{position:relative; z-index:1; font-size:12px; color:#c5b287; line-height:1.7}
+.brand-foot .pill{display:inline-block; padding:4px 10px; border-radius:99px; background:rgba(231,201,135,.16); border:1px solid rgba(231,201,135,.32); margin-bottom:10px; font-size:11px}
+.form-side{padding:52px 48px; display:flex; flex-direction:column; justify-content:center}
+.form-side h2{font-size:22px; font-weight:800; margin-bottom:6px; color:var(--ink)}
+.form-side .lead{font-size:13.5px; color:var(--muted); margin-bottom:30px}
 .field{margin-bottom:18px}
-.field-rtl input{direction:rtl;text-align:right}
-.hint{font-size:11.5px;color:#888;margin-top:4px}
-button{width:100%;padding:12px;background:#b9975b;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s}
-button:hover{background:#a4854d}
-button:disabled{background:#ccc;cursor:not-allowed}
-.alert{padding:11px 14px;border-radius:8px;font-size:13px;margin-top:18px;display:none}
-.alert.ok{background:#e6f4ea;border:1px solid #a5d5b4;color:#1b5e20;display:block}
-.alert.err{background:#fdecea;border:1px solid #f5b5b0;color:#8a1a14;display:block}
-.back{display:inline-block;margin-top:18px;font-size:13px;color:#666;text-decoration:none}
-.back:hover{color:#333}
-.locked{background:#f4f0e3;color:#8a7544;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:22px;border:1px solid #e8dcb8}
+.field label{display:block; font-size:12.5px; font-weight:700; color:var(--ink); margin-bottom:7px}
+.field .ctrl{position:relative}
+.field input{
+  width:100%; padding:13px 14px 13px 14px; border:1.5px solid var(--line); border-radius:11px;
+  font-size:14px; font-family:inherit; background:var(--cream);
+  transition:border-color .15s, background .15s, box-shadow .15s;
+  direction:ltr; text-align:left;
+}
+.field input:focus{outline:none; border-color:var(--gold); background:#fff; box-shadow:0 0 0 4px rgba(185,151,91,.16)}
+button.submit{
+  width:100%; padding:14px; background:var(--gold); color:#fff; border:none; border-radius:11px;
+  font-size:14.5px; font-weight:800; cursor:pointer; font-family:inherit; letter-spacing:.3px;
+  transition:background .15s, transform .05s, box-shadow .15s;
+  box-shadow:0 8px 18px -8px rgba(185,151,91,.65);
+}
+button.submit:hover{background:var(--gold-dark)}
+button.submit:active{transform:translateY(1px)}
+button.submit:disabled{background:#cdc2a8; cursor:not-allowed; box-shadow:none}
+.alert{padding:11px 14px; border-radius:9px; font-size:13px; margin-top:18px; display:none; font-weight:600}
+.alert.ok{background:var(--ok-bg); border:1px solid #b8d8c2; color:var(--ok); display:block}
+.alert.err{background:var(--err-bg); border:1px solid #efb9b1; color:var(--err); display:block}
+.foot-note{font-size:11.5px; color:var(--muted); margin-top:22px; line-height:1.7}
+.foot-note b{color:var(--ink)}
+@media (max-width:760px){
+  .wrap{grid-template-columns:1fr; min-height:auto}
+  .brand{padding:34px 28px}
+  .brand h1{font-size:22px}
+  .form-side{padding:34px 28px}
+}
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>إعدادات الاتصال بـ Maximo</h1>
-  <p class="subtitle">يستخدمها النظام لقراءة البلاغات. تظلّ مخزّنة بأمان على الخادم.</p>
-
-  <div id="locked" class="locked" style="display:none">
-    بعض القيم محدّدة في ملف .env ولن تُغيَّر من هنا. اطلب من فريق التقنية تحديثها لو احتجت ذلك.
-  </div>
-
-  <form id="form" autocomplete="off">
-    <div class="field">
-      <label for="url">رابط Maximo</label>
-      <input id="url" name="maximo_base_url" placeholder="https://maximo.kidana.com.sa/maximo" />
-      <div class="hint">مثال: <span dir="ltr">https://maximo.kidana.com.sa/maximo</span></div>
+<div class="bg-pattern"></div>
+<div class="wrap">
+  <aside class="brand">
+    <div class="brand-top">
+      <div class="brand-mark">
+        <div class="glyph">ك</div>
+        <div class="name">كدانة مالك<small>مركز جودة البلاغات</small></div>
+      </div>
+      <h1>منظومة جودة البلاغات<br><span class="accent">—</span> كشف البلاغات المكررة</h1>
+      <p class="tag">يرصد النظام البلاغات المتكررة في ماكسيمو لحظياً، ويُتيح للمراجع تصنيفها بضغطة واحدة.</p>
     </div>
-
-    <div class="field">
-      <label for="user">اسم المستخدم</label>
-      <input id="user" name="maximo_user" placeholder="اسم حساب الخدمة" />
+    <div class="brand-foot">
+      <span class="pill">دخول آمن عبر حساب ماكسيمو</span>
+      <div>كل عملية تصنيف تُسجَّل باسم المراجع، ويُحفظ سجل القرارات للمراجعة.</div>
     </div>
+  </aside>
 
-    <div class="field">
-      <label for="pass">كلمة السر</label>
-      <input id="pass" name="maximo_pass" type="password" placeholder="اتركها فاضية للإبقاء على الحالية" />
-      <div class="hint" id="passhint">لا تُعرض كلمة السر بعد الحفظ — اتركيها فاضية إذا ما بغيتي تغييرها.</div>
+  <section class="form-side">
+    <h2>تسجيل الدخول</h2>
+    <p class="lead">استخدم اسم المستخدم وكلمة السر لحسابك في ماكسيمو.</p>
+
+    <form id="login-form" autocomplete="off">
+      <div class="field">
+        <label for="user">اسم المستخدم</label>
+        <div class="ctrl">
+          <input id="user" name="username" autocomplete="username" placeholder="مثال: g.mansour" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="pass">كلمة السر</label>
+        <div class="ctrl">
+          <input id="pass" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        </div>
+      </div>
+
+      <button type="submit" class="submit" id="btn">دخول</button>
+    </form>
+
+    <div class="alert" id="alert"></div>
+
+    <div class="foot-note">
+      <b>تنبيه:</b> النظام يتحقّق من بياناتك مباشرةً عبر ماكسيمو. لا تُحفظ كلمة السر في قاعدة بيانات النظام.
     </div>
-
-    <button type="submit" id="save">حفظ واختبار الاتصال</button>
-  </form>
-
-  <div class="alert" id="alert"></div>
-  <a href="/" class="back">← العودة إلى لوحة التحكم</a>
+  </section>
 </div>
 
 <script>
-const form = document.getElementById('form');
+const form = document.getElementById('login-form');
 const alertBox = document.getElementById('alert');
-const saveBtn = document.getElementById('save');
-const passHint = document.getElementById('passhint');
-
-// Pre-fill on load.
-fetch('/api/settings').then(r => r.json()).then(data => {
-  document.getElementById('url').value = data.maximo_base_url || '';
-  document.getElementById('user').value = data.maximo_user || '';
-  if (!data.maximo_pass_set) {
-    passHint.textContent = 'لا توجد كلمة سر محفوظة حالياً — يجب إدخالها.';
-  }
-}).catch(() => {});
+const btn = document.getElementById('btn');
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   alertBox.className = 'alert';
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'جارٍ الحفظ والاختبار…';
-
-  const body = {
-    maximo_base_url: document.getElementById('url').value.trim(),
-    maximo_user: document.getElementById('user').value.trim(),
-    maximo_pass: document.getElementById('pass').value
-  };
-
+  btn.disabled = true;
+  btn.textContent = 'جارٍ التحقّق…';
   try {
-    const resp = await fetch('/api/settings', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
+    const resp = await fetch('/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('user').value.trim(),
+        password: document.getElementById('pass').value
+      })
     });
-    const data = await resp.json();
-    alertBox.textContent = data.message || (data.ok ? 'تم الحفظ.' : 'حدث خطأ.');
-    alertBox.className = 'alert ' + (data.ok ? 'ok' : 'err');
-    if (data.ok) {
-      document.getElementById('pass').value = '';
-      passHint.textContent = 'تم تحديث كلمة السر.';
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.ok) {
+      window.location.href = '/';
+      return;
     }
+    alertBox.textContent = data.message || 'تعذّر تسجيل الدخول. تحقّق من بياناتك.';
+    alertBox.className = 'alert err';
   } catch (err) {
-    alertBox.textContent = 'خطأ في الاتصال بالخادم: ' + err.message;
+    alertBox.textContent = 'تعذّر الاتصال بالخادم: ' + err.message;
     alertBox.className = 'alert err';
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'حفظ واختبار الاتصال';
+    btn.disabled = false;
+    btn.textContent = 'دخول';
   }
 });
 </script>
@@ -1755,14 +1811,85 @@ form.addEventListener('submit', async (e) => {
 """
 
 
-@app.get("/settings", response_class=HTMLResponse)
-def settings_page():
-    """Operator-facing page for the Maximo connection settings.
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    """Branded sign-in page. Already-authenticated users are bounced
+    back to the dashboard so they don't see the form again."""
+    from duplicate_monitor.web.auth import get_current_user
 
-    Exists so non-technical users can configure the integration from
-    the browser instead of editing the .env file by hand.
-    """
-    return HTMLResponse(_SETTINGS_HTML, headers={"Cache-Control": "no-store"})
+    if get_current_user(request):
+        return Response(status_code=302, headers={"Location": "/"})
+    return HTMLResponse(_LOGIN_HTML, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/login")
+async def api_login(request: Request):
+    """Validate the submitted credentials against Maximo and, on
+    success, open a server-side session and set the cookie."""
+    from duplicate_monitor.web.auth import (
+        SESSION_COOKIE,
+        SESSION_TTL_HOURS,
+        authenticate,
+        create_session,
+    )
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "message": "طلب غير صالح"}, status_code=400)
+
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+
+    if not username or not password:
+        return JSONResponse(
+            {"ok": False, "message": "الرجاء إدخال اسم المستخدم وكلمة السر."},
+            status_code=400,
+        )
+
+    if not authenticate(username, password):
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "تعذّر التحقّق من البيانات عبر ماكسيمو. راجع اسم المستخدم وكلمة السر.",
+            },
+            status_code=401,
+        )
+
+    token = create_session(username)
+    resp = JSONResponse({"ok": True, "username": username})
+    resp.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/logout")
+def api_logout(request: Request):
+    """Invalidate the session on the server and clear the cookie."""
+    from duplicate_monitor.web.auth import SESSION_COOKIE, end_session
+
+    end_session(request)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/me")
+def api_me(request: Request):
+    """Return the username for the active session. Used by the
+    dashboard's profile menu so it can show who is logged in."""
+    from duplicate_monitor.web.auth import get_current_user
+
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"authenticated": False}, status_code=401)
+    return JSONResponse({"authenticated": True, "username": user})
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -1856,7 +1983,15 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
 .tb-icon{width:34px;height:34px;border-radius:7px;border:1px solid var(--border);background:var(--sand);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:all .15s;font-size:14px;color:var(--txt2)}
 .tb-icon:hover{background:var(--sand2);border-color:var(--gold-bd)}
 .notif-dot{position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;background:var(--red);color:#fff;font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid var(--card)}
-.tb-avatar{width:34px;height:34px;border-radius:50%;background:var(--gold);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tb-userwrap{position:relative}
+.tb-avatar{width:34px;height:34px;border-radius:50%;background:var(--gold);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:background .15s}
+.tb-avatar:hover{background:var(--gold-dk)}
+.tb-menu{position:absolute;top:46px;left:0;min-width:220px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 28px -10px rgba(60,42,15,.28);overflow:hidden;z-index:1000}
+.tb-menu-head{padding:14px 16px;background:var(--sand);border-bottom:1px solid var(--border)}
+.tb-menu-name{font-size:13.5px;font-weight:800;color:var(--brown-ink);direction:ltr;text-align:left}
+.tb-menu-sub{font-size:11px;color:var(--txt3);margin-top:2px}
+.tb-menu-item{display:block;width:100%;text-align:right;padding:11px 16px;background:#fff;border:none;font-family:inherit;font-size:13px;font-weight:600;color:var(--brown-ink);cursor:pointer;transition:background .12s}
+.tb-menu-item:hover{background:var(--sand)}
 /* Pages */
 .pages{flex:1;overflow:hidden;position:relative}
 .page{display:none;height:100%;overflow-y:auto;flex-direction:column}
@@ -2267,7 +2402,6 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
       <button class="nav-item"        data-page="alerts"   onclick="goto('alerts')">  <span class="nav-icon"></span>مراجعة المكررات<span class="nav-badge" id="nb" style="display:none">0</span></button>
       <button class="nav-item"        data-page="reports"  onclick="goto('reports');loadReports()"><span class="nav-icon"></span>البلاغات</button>
       <button class="nav-item"        data-page="upload"   onclick="goto('upload');loadUploadInfo()"><span class="nav-icon"></span>رفع البلاغات</button>
-      <a class="nav-item" href="/settings" style="text-decoration:none;display:block"><span class="nav-icon">⚙</span>إعدادات الاتصال</a>
     </div>
     <div class="sidebar-foot">v2.0 · كدانه</div>
   </nav>
@@ -2300,7 +2434,16 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
         </button>
       </div>
       <button class="hero-btn" id="btn-exp" onclick="exportExcel()" style="font-size:11px;padding:6px 14px"> تصدير Excel</button>
-      <div class="tb-avatar" title="المستخدم">م</div>
+      <div class="tb-userwrap">
+        <div class="tb-avatar" id="tb-avatar" title="المستخدم" onclick="toggleUserMenu()">·</div>
+        <div class="tb-menu" id="tb-menu" style="display:none">
+          <div class="tb-menu-head">
+            <div class="tb-menu-name" id="tb-menu-name">—</div>
+            <div class="tb-menu-sub">حساب ماكسيمو</div>
+          </div>
+          <button class="tb-menu-item" onclick="doLogout()">تسجيل الخروج</button>
+        </div>
+      </div>
     </div>
 
     <!-- hidden stubs — ks-* IDs kept for JS compatibility, not displayed -->
@@ -4091,6 +4234,31 @@ loadNotifications();
 setTimeout(_requestNotifPermission, 3000);
 /* ── Start new-groups poller ── */
 setTimeout(_pollNewGroups, 12000);
+
+/* ── User menu (top-right avatar) ── */
+function toggleUserMenu(){
+  var m=document.getElementById("tb-menu");
+  if(!m)return;
+  m.style.display=(m.style.display==="none"||!m.style.display)?"block":"none";
+}
+document.addEventListener("click",function(e){
+  var w=document.querySelector(".tb-userwrap");
+  var m=document.getElementById("tb-menu");
+  if(!w||!m||m.style.display!=="block")return;
+  if(!w.contains(e.target)) m.style.display="none";
+});
+async function doLogout(){
+  try{await fetch("/api/logout",{method:"POST"});}catch(_){}
+  window.location.href="/login";
+}
+fetch("/api/me").then(function(r){return r.ok?r.json():null;}).then(function(d){
+  if(!d||!d.username)return;
+  var av=document.getElementById("tb-avatar");
+  var nm=document.getElementById("tb-menu-name");
+  if(av) av.textContent=(d.username[0]||"·").toUpperCase();
+  if(av) av.title=d.username;
+  if(nm) nm.textContent=d.username;
+}).catch(function(){});
 </script>
 <!-- notification panel at body level — outside any stacking context -->
 <div class="notif-panel" id="notif-panel">
