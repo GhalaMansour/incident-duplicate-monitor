@@ -299,6 +299,45 @@ Every supported environment variable is documented inline in
 See [`docs/security.md`](docs/security.md) for the recommended way to
 manage these variables in production.
 
+### File-source folder — where SR exports go
+
+When the file watcher is active (either explicitly via
+`LM_SOURCE_MODE=file` or as the automatic fallback when Maximo is
+unreachable), the service reads the **newest** `.xls` / `.xlsx` file
+in `LM_WATCH_DIR` and treats it as a Service Request export.
+
+**Where SR exports come from:**
+From Maximo's Service Requests view, choose *Save as Excel*. The
+resulting file is the export the watcher needs.
+
+**Required columns in the export:**
+`Service Request` (or `Ticket ID`), `LOCATION`, `Summary`,
+`Details`, `Reported Date`. The watcher is case-insensitive and
+also accepts the equivalent Arabic headings.
+
+**Where to place the file:**
+Create a dedicated folder for SR exports and point `LM_WATCH_DIR` at
+it. For example:
+
+```
+LM_WATCH_DIR=C:\Users\<you>\Documents\maximo-exports
+```
+
+Drop the newest export into that folder; the watcher will pick it up
+on the next tick.
+
+**Common mistakes to avoid:**
+
+- **Do not point `LM_WATCH_DIR` at the bundled `data/` folder.**
+  `data/` holds reference lookup files (`asset_description.xls`,
+  `location_description.xls`) used for Arabic display names. Those
+  are not SR exports. The service auto-skips them by name, but the
+  folder is otherwise empty of SR data, so the watcher will report
+  *"لا يوجد ملفّ بلاغات"* until a real export is placed beside them.
+- **Do not leave Excel lock files (`~$something.xlsx`) in the
+  watcher folder.** Closed Excel windows leave them behind. The
+  watcher skips them automatically.
+
 ---
 
 ## Running the Service
