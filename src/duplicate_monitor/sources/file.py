@@ -43,7 +43,7 @@ def _newest_excel(folder: Path) -> Optional[Path]:
                 "_مكررات",
                 "نتائج_المراجعة",
                 "asset_description",
-                "loction_decription",
+                "location_description",
                 "enriched",
             )
         ):
@@ -78,8 +78,11 @@ class FileSource:
         self._last_path = path
         self._last_mtime = path.stat().st_mtime
 
-        # Resolve the columns we care about — case-insensitive
-        col_map = {c.lower(): c for c in df.columns}
+        # Resolve the columns we care about — case-insensitive.
+        # ``str(c)`` defends against numeric column headers that show up
+        # when an Excel file has no proper header row (e.g. a reference
+        # lookup file mistakenly placed in the watch folder).
+        col_map = {str(c).lower(): c for c in df.columns}
 
         def _col(*names: str) -> Optional[str]:
             for n in names:
