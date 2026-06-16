@@ -68,8 +68,8 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
         - ``"identical"`` — template >= 90% and numbers overlap >= 50%
         - ``"similar"`` — template >= 90% regardless of numbers
         - ``"template_only"`` — template >= 90% but the numbers differ
-          and the token similarity is low (the description is the
-          same boilerplate but the asset/grid numbers are different)
+          (numbers overlap < 30%): same boilerplate, different asset
+          or grid number
         - ``"different"`` — template < 90%
     * ``points``: the score contribution (5 for identical, 3 for
       similar, 0 otherwise)
@@ -90,7 +90,10 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
 
     matcher = difflib.SequenceMatcher(None, a_template, b_template, autojunk=False)
     template_pct = int(matcher.ratio() * 100)
-    token_pct = _token_similarity_pct(a_template, b_template)
+    # token_pct keeps the original numbers so that two SRs with the same
+    # boilerplate but different asset/grid numbers diverge here and trip
+    # the template_only guard.
+    token_pct = _token_similarity_pct(a_norm, b_norm)
     final_pct = max(template_pct, token_pct)
 
     a_numbers = set(_NUM_PATTERN.findall(a or ""))
@@ -102,7 +105,7 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
 
     if final_pct >= 90 and numbers_overlap >= 0.5:
         return ("identical", 5, final_pct)
-    if template_pct >= 90 and numbers_overlap < 0.3 and token_pct < 80:
+    if template_pct >= 90 and numbers_overlap < 0.3:
         return ("template_only", 0, final_pct)
     if final_pct >= 90:
         return ("similar", 3, final_pct)
@@ -275,8 +278,10 @@ def _token_similarity_pct(a: str, b: str) -> int:
 
 
 def _detail_tokens(text: str) -> set[str]:
-    text = _NUM_PATTERN.sub("#", text or "")
-    tokens = re.findall(r"[؀-ۿa-zA-Z0-9#/]+", text)
+    # Numbers are preserved as tokens so that two SRs with the same
+    # boilerplate but different asset/grid references diverge here and
+    # the template_only guard can fire.
+    tokens = re.findall(r"[؀-ۿa-zA-Z0-9/]+", text or "")
     return {token for token in tokens if len(token) > 1 and token not in _DETAIL_STOPWORDS}
 
 

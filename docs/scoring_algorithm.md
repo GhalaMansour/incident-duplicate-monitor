@@ -127,12 +127,11 @@ that matches decides the class.
    `numbers_overlap ≥ 50%`. The two SRs describe the same incident
    with the same asset/grid references.
 2. **`template_only` → 0 points (warning only).** `template_pct ≥ 90%`
-   **and** `numbers_overlap < 30%` **and** `token_pct < 80%`. The
-   sentence structure matches but the actual words and the numbers
-   both diverge — same phrasing template applied to a different
-   incident (for example, "تسرب في شبكة المياه عند المربع 5" vs
-   "تسرب في شبكة المياه عند المربع 47"). The dashboard flags it for
-   the reviewer.
+   **and** `numbers_overlap < 30%`. The sentence structure matches but
+   the asset / grid / signpost numbers differ — same phrasing template
+   applied to a different incident (for example, "تسرب في شبكة المياه
+   عند المربع 5" vs "تسرب في شبكة المياه عند المربع 47"). The
+   dashboard flags it for the reviewer.
 3. **`similar` → +3 points.** `final_pct ≥ 90%` and the pair did not
    match either rule above. Same wording or same content with
    ambiguous numeric overlap.

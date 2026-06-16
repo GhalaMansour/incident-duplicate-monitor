@@ -302,7 +302,10 @@ def _smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
         tpl_pct = int(sm.ratio() * 100)
     else:
         tpl_pct = int(sm.ratio() * 100)
-    token_pct = _token_similarity_pct(a_template, b_template)
+    # token_pct is computed on the original normalized text (with numbers
+    # preserved) so that same-template / different-number pairs trip the
+    # template_only guard instead of being mis-classified as similar.
+    token_pct = _token_similarity_pct(a_norm, b_norm)
     final_pct = max(tpl_pct, token_pct)
 
     # ٢) الأرقام المذكورة
@@ -316,7 +319,7 @@ def _smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
     # ٣) الحكم
     if final_pct >= 90 and nums_overlap >= 0.5:
         return ("identical", 5, final_pct)  # نص متطابق حقيقي → +5
-    if tpl_pct >= 90 and nums_overlap < 0.3 and token_pct < 80:
+    if tpl_pct >= 90 and nums_overlap < 0.3:
         return ("template_only", 0, final_pct)  # قالب موحّد بأرقام مختلفة → +0
     if final_pct >= 90:
         return ("similar", 3, final_pct)  # نص متشابه ≥90% → +3
@@ -352,8 +355,9 @@ _DETAIL_STOPWORDS = {
 
 
 def _detail_tokens(s: str) -> set[str]:
-    s = _NUM_RE.sub("#", s or "")
-    toks = re.findall(r"[\u0600-\u06FFa-zA-Z0-9#/]+", s)
+    # Numbers are preserved so same-template / different-number pairs
+    # diverge at the token level (feeds the template_only guard).
+    toks = re.findall(r"[\u0600-\u06FFa-zA-Z0-9/]+", s or "")
     return {t for t in toks if len(t) > 1 and t not in _DETAIL_STOPWORDS}
 
 

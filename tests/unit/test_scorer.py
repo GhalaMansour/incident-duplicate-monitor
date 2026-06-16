@@ -22,12 +22,26 @@ def test_identical_text_scores_identical() -> None:
 
 
 def test_template_only_with_different_numbers() -> None:
-    cls, _points, _pct = smart_text_compare(
-        "انقطاع كهرباء في المربع 12",
-        "انقطاع كهرباء في المربع 47",
+    """Same boilerplate, different grid number must classify as
+    ``template_only`` so the pair contributes 0 points and shows a
+    warning instead of a false-positive duplicate alert."""
+    cls, points, _pct = smart_text_compare(
+        "تسرب في شبكة المياه عند المربع 5",
+        "تسرب في شبكة المياه عند المربع 47",
     )
-    # Same boilerplate, different grid number, low token similarity.
-    assert cls in ("template_only", "similar")
+    assert cls == "template_only"
+    assert points == 0
+
+
+def test_similar_text_with_extra_context() -> None:
+    """Same incident reported twice with extra wording on one side
+    must classify as ``similar`` (+3)."""
+    cls, points, _pct = smart_text_compare(
+        "تسرب في الخزان رقم 5 الوضع حرج يرجى التدخل العاجل",
+        "تسرب في الخزان 5",
+    )
+    assert cls in ("identical", "similar")
+    assert points >= 3
 
 
 def test_completely_different_text_scores_different() -> None:

@@ -162,8 +162,8 @@ returns the first match:
 1. **`identical` (+5)** — `max(template_pct, token_pct) ≥ 90%` **and**
    `numbers_overlap ≥ 50%`.
 2. **`template_only` (0, warning)** — `template_pct ≥ 90%` **and**
-   `numbers_overlap < 30%` **and** `token_pct < 80%`. Same boilerplate
-   filled with different content — different incident.
+   `numbers_overlap < 30%`. Same boilerplate filled with different
+   asset / grid numbers — a different incident, flagged for review.
 3. **`similar` (+3)** — `max(template_pct, token_pct) ≥ 90%` and rules
    1–2 did not match.
 4. **`different` (0, pair dropped)** — anything below 90%.
