@@ -2,12 +2,15 @@
 
 Scores a single newly observed service request against the set of
 currently open SRs. This is the hot path used by the poller; it is
-intentionally cheap (O(open_srs) per new SR) so the dashboard reflects
-new duplicates within seconds of their arrival in Maximo.
+intentionally cheap (O(open_srs) per new SR) so alerts surface within
+seconds of a new SR arriving in Maximo.
 
-The bulk batch detector (legacy.detect) is used by the full-scan path;
-the engine here uses the same scoring vocabulary expressed via the
-public helpers in `matching.normalize` and `matching.scorer`.
+The actual pair scoring lives in ``duplicate_monitor.matching.scorer``;
+this module's ``score_pair`` is a thin adapter that converts the
+poller-shaped raw record into the dict shape the shared scorer expects
+and delegates the decision to ``scorer.score_pair``. The bulk path
+(``legacy.detect``) delegates to the same function, so the two paths
+are guaranteed to score identical pairs identically.
 """
 
 from __future__ import annotations
@@ -71,7 +74,7 @@ def _fault_blocking(summary: str) -> str:
     return ",".join(parts[-2:]) if len(parts) >= 2 else (summary or "")
 
 
-# ─── Scoring — mirrors find_duplicates.detect() per-pair logic ────────────
+# ─── Scoring — delegates to scorer.score_pair ─────────────────────────────
 
 
 def _to_scorer_record(raw: dict) -> dict:
