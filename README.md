@@ -451,10 +451,3 @@ contribution and are credited to the project owner.
   `src/duplicate_monitor/matching/legacy.py`. Full write-up:
   [`docs/scoring_algorithm.md`](docs/scoring_algorithm.md).
 
-### 3. Internal Codebase Lineage
-
-This repository was split from the monorepo at
-`C:\Users\USER\Desktop\Incident-Description` on 2026-06-04. The
-original repository is preserved unchanged as the archival source. Git
-history was not carried over - each new repository begins with a clean
-initial commit by design.
