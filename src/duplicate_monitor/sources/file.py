@@ -59,6 +59,7 @@ class FileSource:
         self.folder = Path(CFG.file_watch_dir or CFG.data_dir)
         self._last_path: Optional[Path] = None
         self._last_mtime: float = 0.0
+        self._warned_reference_only = False
 
     def configured(self) -> bool:
         return self.folder.exists()
@@ -66,7 +67,33 @@ class FileSource:
     def fetch_recent(self, lookback_minutes: Optional[int] = None) -> list[dict]:
         path = _newest_excel(self.folder)
         if path is None:
-            raise FileSourceError(f"No XLS/XLSX file found in {self.folder}")
+            # Distinguish "no files at all" from "only reference files".
+            # The latter is the common misconfiguration where the operator
+            # forgot to set LM_WATCH_DIR and the watcher is pointing at the
+            # bundled data/ folder (which holds only lookup files).
+            any_excel = (
+                [
+                    p
+                    for p in self.folder.iterdir()
+                    if p.is_file() and p.suffix.lower() in (".xls", ".xlsx")
+                ]
+                if self.folder.exists()
+                else []
+            )
+            if any_excel and not self._warned_reference_only:
+                log.warning(
+                    "مجلّد المراقبة %s يحتوي على ملفّات Excel لكن جميعها "
+                    "ملفّات مرجعية تم تجاوزها (مثل asset_description / "
+                    "location_description). ضع ملفّ تصدير بلاغات حقيقي "
+                    "من Maximo في هذا المجلّد، أو غيّر LM_WATCH_DIR في "
+                    ".env ليشير إلى مجلّد تصدير البلاغات.",
+                    self.folder,
+                )
+                self._warned_reference_only = True
+            raise FileSourceError(
+                f"لا يوجد ملفّ بلاغات في {self.folder}. "
+                f"راجع تعليق LM_WATCH_DIR في .env.example لمعرفة المكان الصحيح."
+            )
 
         from duplicate_monitor.matching.legacy import read_file
 
@@ -101,7 +128,13 @@ class FileSource:
         if not col_sr:
             found = list(df.columns[:20])  # first 20 cols for diagnosis
             log.error("SR column not found. Columns in %s: %s", path.name, found)
-            raise FileSourceError(f"No SR column in {path.name}. Found: {found}")
+            raise FileSourceError(
+                f"الملف '{path.name}' لا يحتوي على عمود رقم البلاغ (Service Request). "
+                f"الأعمدة الموجودة: {found}. "
+                f"تأكّد من أن LM_WATCH_DIR في .env يشير إلى مجلّد فيه ملفّ تصدير "
+                f"حقيقي للبلاغات من Maximo (Service Requests → Save as Excel)، "
+                f"وليس مجلّد الملفّات المرجعية data/."
+            )
 
         lookback = lookback_minutes if lookback_minutes is not None else CFG.lookback_minutes
         since = datetime.now(UTC) - timedelta(minutes=lookback)
