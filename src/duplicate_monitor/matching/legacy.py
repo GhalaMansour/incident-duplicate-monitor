@@ -132,8 +132,8 @@ def load_ref_from_bytes(asset_bytes: bytes | None, loc_bytes: bytes | None) -> N
     """يُحدِّث الخرائط المرجعية من bytes مباشرة (للـ Streamlit Cloud حين الملفات غير موجودة).
 
     استخدام:
-        import find_duplicates as fd
-        fd.load_ref_from_bytes(asset_xls_bytes, loc_xls_bytes)
+        from duplicate_monitor.matching import legacy
+        legacy.load_ref_from_bytes(asset_xls_bytes, loc_xls_bytes)
     """
     import tempfile, io as _io
 

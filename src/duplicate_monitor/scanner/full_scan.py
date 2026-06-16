@@ -664,11 +664,8 @@ def run_scan(maximo_source, force: bool = False, max_days: Optional[int] = None)
         _enrich_contractor(rows, maximo_source)
         _enrich_reporter(rows, maximo_source)
 
-        # Run detect()
-        try:
-            from find_duplicates import detect  # type: ignore
-        except ImportError as e:
-            raise ScanError(f"Cannot import find_duplicates: {e}") from e
+        # Run detect — the bulk detector lives in matching.legacy.
+        from duplicate_monitor.matching.legacy import detect
 
         df = _rows_to_df(rows)
         result = detect(df, min_score=CFG.min_score, max_days=md)
