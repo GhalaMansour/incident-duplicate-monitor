@@ -107,6 +107,13 @@ def cmd_tick() -> None:
 
 def cmd_diag() -> None:
     """Print the configuration and probe each Maximo strategy once."""
+    # Overlay any values the operator saved through the dashboard
+    # settings page before printing the summary, so what diag shows
+    # matches what the running service will use.
+    from duplicate_monitor.storage import settings as _settings
+
+    _settings.apply_to_cfg()
+
     print("=" * 60)
     print("Duplicate Monitor - Diagnostics")
     print("=" * 60)
