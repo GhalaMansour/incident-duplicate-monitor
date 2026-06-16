@@ -135,6 +135,18 @@ def score_pair(record_a: dict, record_b: dict) -> tuple[int, list[str], dict]:
     reasons: list[str] = []
     metadata: dict = {"tpl_pct": 0, "txt_class": "different"}
 
+    # Hard gate: when both SRs carry an asset id and the two ids differ,
+    # the pair cannot be a duplicate — same wording or not, they describe
+    # incidents on physically different assets. When either side has no
+    # asset id (operator omitted it), the gate is lenient and we fall
+    # back to the other signals.
+    asset_a = record_a.get("asset")
+    asset_b = record_b.get("asset")
+    if asset_a and asset_b and asset_a != asset_b:
+        metadata["asset_mismatch"] = True
+        reasons.append("أصول مختلفة — ليس تكراراً")
+        return 0, reasons, metadata
+
     if record_a.get("loc"):
         reasons.append(f"نفس الموقع ({record_a['loc']})")
         score += 4
@@ -143,8 +155,6 @@ def score_pair(record_a: dict, record_b: dict) -> tuple[int, list[str], dict]:
         reasons.append(f"نفس العطل ({record_a['fault']})")
         score += 3
 
-    asset_a = record_a.get("asset")
-    asset_b = record_b.get("asset")
     if asset_a and asset_b and asset_a == asset_b:
         loc_n = normalize_arabic(record_a.get("loc", ""))
         asset_n = normalize_arabic(asset_a)

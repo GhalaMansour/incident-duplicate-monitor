@@ -76,6 +76,37 @@ def test_score_pair_blocks_on_fault_and_location() -> None:
     assert metadata["txt_class"] == "identical"
 
 
+def test_different_assets_drop_pair_even_with_identical_text() -> None:
+    """Two SRs with identical wording but different asset ids describe
+    incidents on physically different assets — never a duplicate."""
+    record_a = {
+        "loc": "MN03",
+        "fault": "انقطاع كهرباء",
+        "asset": "303076",
+        "detail": "انقطاع كامل للإنارة في الشارع الرئيسي",
+        "reported_dt": datetime(2026, 5, 21, 10, 0, 0),
+    }
+    record_b = {**record_a, "asset": "404099"}
+    score, _reasons, metadata = score_pair(record_a, record_b)
+    assert score == 0
+    assert metadata.get("asset_mismatch") is True
+
+
+def test_missing_asset_on_one_side_does_not_drop_pair() -> None:
+    """When an operator omits the asset id, the asset gate is lenient
+    and scoring proceeds on the remaining signals."""
+    record_a = {
+        "loc": "MN03",
+        "fault": "انقطاع كهرباء",
+        "asset": "303076",
+        "detail": "انقطاع كامل للإنارة في الشارع الرئيسي",
+        "reported_dt": datetime(2026, 5, 21, 10, 0, 0),
+    }
+    record_b = {**record_a, "asset": ""}
+    score, _reasons, _metadata = score_pair(record_a, record_b)
+    assert score > 0
+
+
 def test_parse_date_accepts_iso_and_us_formats() -> None:
     assert parse_date("2026-05-21 10:00:00") == datetime(2026, 5, 21, 10, 0, 0)
     assert parse_date("5/21/26 10:00 AM") == datetime(2026, 5, 21, 10, 0, 0)
