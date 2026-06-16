@@ -154,17 +154,26 @@ def _clean_html(s: str) -> str:
 
 
 def _tier(score: int) -> str:
-    if score >= 8:
+    """UI confidence tier for a pair score.
+
+    After the matching layer was unified, the minimum positive score a
+    pair can earn is 10 (location +4, fault +3, similar text +3). The
+    thresholds below reflect that reality: any pair surfaced to the
+    reviewer is at least a "possible" duplicate, with "confirmed"
+    requiring extra signals (asset match, same-day report, or
+    identical text) on top of the four hard requirements.
+    """
+    if score >= 14:
         return "confirmed"
-    if score >= 5:
+    if score >= 10:
         return "possible"
     return "weak"
 
 
 def _tier_ar(score: int) -> str:
-    if score >= 8:
+    if score >= 14:
         return " مؤكد"
-    if score >= 5:
+    if score >= 10:
         return " محتمل"
     return " ضعيف"
 
