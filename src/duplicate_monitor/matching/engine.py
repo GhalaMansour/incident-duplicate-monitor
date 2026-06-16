@@ -129,7 +129,7 @@ def score_pair(new: dict, existing: dict, *, max_days: int = 2) -> Optional[dict
     if d_a and d_b:
         cls, bonus, sim = _smart_text_compare(d_a, d_b)
         sim_pct = int(sim if sim > 1 else sim * 100)
-        if cls in ("different", "template_only") or sim_pct <= 80:
+        if cls in ("different", "template_only") or sim_pct < 90:
             return None
         if bonus:
             score += bonus

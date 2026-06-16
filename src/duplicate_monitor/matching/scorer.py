@@ -66,11 +66,11 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
 
     * ``classification``:
         - ``"identical"`` — template >= 90% and numbers overlap >= 50%
-        - ``"similar"`` — template >= 80% regardless of numbers
+        - ``"similar"`` — template >= 90% regardless of numbers
         - ``"template_only"`` — template >= 90% but the numbers differ
           and the token similarity is low (the description is the
           same boilerplate but the asset/grid numbers are different)
-        - ``"different"`` — template < 80%
+        - ``"different"`` — template < 90%
     * ``points``: the score contribution (5 for identical, 3 for
       similar, 0 otherwise)
     * ``template_pct``: integer percentage similarity of the template
@@ -104,7 +104,7 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
         return ("identical", 5, final_pct)
     if template_pct >= 90 and numbers_overlap < 0.3 and token_pct < 80:
         return ("template_only", 0, final_pct)
-    if final_pct >= 80:
+    if final_pct >= 90:
         return ("similar", 3, final_pct)
     return ("different", 0, final_pct)
 
