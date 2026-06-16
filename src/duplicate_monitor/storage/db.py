@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     decision      TEXT,
     note          TEXT,
     decided_at    TEXT,
+    decided_by    TEXT,
     UNIQUE(new_sr, match_sr)
 );
 
@@ -77,7 +78,34 @@ CREATE TABLE IF NOT EXISTS poll_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_poll_time ON poll_history(started_at);
+
+-- Dashboard sessions — one row per active browser cookie. Each row
+-- records the Maximo username used to authenticate. Decisions made
+-- inside that session are tagged with the username so the audit trail
+-- shows who marked which group as a duplicate.
+CREATE TABLE IF NOT EXISTS sessions (
+    token        TEXT PRIMARY KEY,
+    username     TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 """
+
+
+def _migrate_existing_db(c: sqlite3.Connection) -> None:
+    """Backfill schema changes onto databases created before this commit.
+
+    ``CREATE TABLE IF NOT EXISTS`` does not add new columns to an existing
+    table, so old monitor.db files would be missing the
+    ``alerts.decided_by`` column even after the schema string above was
+    updated. This routine adds the column when missing.
+    """
+    existing = {row["name"] for row in c.execute("PRAGMA table_info(alerts)").fetchall()}
+    if existing and "decided_by" not in existing:
+        c.execute("ALTER TABLE alerts ADD COLUMN decided_by TEXT")
 
 
 def _now_utc() -> str:
@@ -102,6 +130,7 @@ def init_db() -> None:
     """Idempotent — call once at startup."""
     with _conn() as c:
         c.executescript(_SCHEMA)
+        _migrate_existing_db(c)
 
 
 # ─── sr_seen ──────────────────────────────────────────────────────────────────
@@ -306,6 +335,83 @@ def health_summary() -> dict:
         ).fetchone()
     return {
         "last_poll": dict(last) if last else None,
-        "ok_24h": int(ok24["n"]) if ok24 else 0,
-        "fail_24h": int(fail24["n"]) if fail24 else 0,
+        "ok_24h": int(ok24["n"] or 0) if ok24 else 0,
+        "fail_24h": int(fail24["n"] or 0) if fail24 else 0,
     }
+
+
+# ─── sessions ────────────────────────────────────────────────────────────────
+
+
+def create_session(token: str, username: str, ttl_hours: int = 12) -> None:
+    """Insert a new login session. ``token`` is the random value sent
+    back to the browser as a cookie; ``username`` is the Maximo login."""
+    from datetime import timedelta
+
+    now = datetime.now(UTC)
+    expires = now + timedelta(hours=ttl_hours)
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO sessions (token, username, created_at, last_seen_at, expires_at) "
+            "VALUES (?,?,?,?,?)",
+            (
+                token,
+                username,
+                now.isoformat(timespec="seconds"),
+                now.isoformat(timespec="seconds"),
+                expires.isoformat(timespec="seconds"),
+            ),
+        )
+
+
+def lookup_session(token: str) -> Optional[dict]:
+    """Return the session row for ``token`` if it is still valid.
+    Updates ``last_seen_at`` as a side effect so an active reviewer's
+    session is kept alive."""
+    if not token:
+        return None
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM sessions WHERE token=? AND expires_at >= ?",
+            (token, now),
+        ).fetchone()
+        if not row:
+            return None
+        c.execute("UPDATE sessions SET last_seen_at=? WHERE token=?", (now, token))
+        return dict(row)
+
+
+def delete_session(token: str) -> None:
+    """Remove a session row (logout)."""
+    if not token:
+        return
+    with _conn() as c:
+        c.execute("DELETE FROM sessions WHERE token=?", (token,))
+
+
+def purge_expired_sessions() -> int:
+    """Remove every session whose expiry has passed. Returns the number
+    of rows removed. Cheap; safe to call at startup and periodically."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with _conn() as c:
+        result = c.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+        return result.rowcount or 0
+
+
+def set_decision(
+    alert_id: int,
+    decision: str,
+    note: str = "",
+    decided_by: str = "",
+) -> bool:
+    """Record a reviewer's decision on an alert. ``decided_by`` is the
+    Maximo username of the logged-in reviewer; stored so the audit
+    trail names who classified the duplicate."""
+    with _conn() as c:
+        result = c.execute(
+            "UPDATE alerts SET state='decided', decision=?, note=?, "
+            "decided_at=?, decided_by=? WHERE id=?",
+            (decision, note[:500], _now_utc(), decided_by, alert_id),
+        )
+        return (result.rowcount or 0) > 0

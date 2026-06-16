@@ -125,6 +125,38 @@ _STRATEGIES = [
 ]
 
 
+def validate_credentials(base_url: str, user: str, password: str, timeout: int = 10) -> bool:
+    """Probe Maximo with the given credentials to decide if they grant
+    access to the OSLC SR collection.
+
+    Tries each of the six (endpoint, auth-header) strategies the main
+    source supports and stops at the first one that returns 200.
+    Returns ``False`` if every strategy gets rejected (401/403) or the
+    host is unreachable. Used by the login flow to authenticate the
+    dashboard user against the live Maximo deployment rather than a
+    local password store.
+    """
+    if not (base_url and user and password):
+        return False
+
+    base = base_url.rstrip("/")
+    params = {"oslc.pageSize": "1", "oslc.select": "ticketid"}
+    for endpoint, auth_fn, header_name in _STRATEGIES:
+        url = f"{base}{endpoint}"
+        headers = {header_name: auth_fn(user, password), "Accept": "application/json"}
+        try:
+            r = httpx.get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        except (httpx.HTTPError, OSError):
+            continue
+        if r.status_code == 200:
+            return True
+        # 401/403 → wrong creds; keep trying other strategies in case
+        # this endpoint specifically rejects this auth header style.
+        if r.status_code not in (401, 403, 404):
+            continue
+    return False
+
+
 class MaximoSource:
     """Stateful client — caches the first working strategy and reuses the HTTP session."""
 
