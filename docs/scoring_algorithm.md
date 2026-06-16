@@ -126,21 +126,22 @@ that matches decides the class.
 1. **`identical` → +5 points.** `final_pct ≥ 90%` **and**
    `numbers_overlap ≥ 50%`. The two SRs describe the same incident
    with the same asset/grid references.
-2. **`template_only` → 0 points (warning only).** `template_pct ≥ 90%`
-   **and** `numbers_overlap < 30%`. The sentence structure matches but
-   the asset / grid / signpost numbers differ — same phrasing template
+2. **`template_only` → pair dropped.** `template_pct ≥ 90%` **and**
+   `numbers_overlap < 30%`. The sentence structure matches but the
+   asset / grid / signpost numbers differ — same phrasing template
    applied to a different incident (for example, "تسرب في شبكة المياه
-   عند المربع 5" vs "تسرب في شبكة المياه عند المربع 47"). The
-   dashboard flags it for the reviewer.
+   عند المربع 5" vs "تسرب في شبكة المياه عند المربع 47"). Score 0,
+   metadata.gate set to ``text``, pair is not reported as a duplicate.
 3. **`similar` → +3 points.** `final_pct ≥ 90%` and the pair did not
    match either rule above. Same wording or same content with
    ambiguous numeric overlap.
 4. **`different` → 0 points, pair dropped.** Anything that does not
    reach `final_pct ≥ 90%`.
 
-The `template_only` class is the most operationally important: without
-it, boilerplate descriptions would drive false positives during peak
-hours.
+The `template_only` class is the most operationally important guard:
+without it, boilerplate descriptions would drive false positives
+during peak hours by passing the same-wording check on pairs that are
+in fact different incidents at different physical assets.
 
 ## Step 4: Per-pair scoring
 
@@ -151,7 +152,7 @@ hours.
 | Same location | Always (guaranteed by blocking) | +4 |
 | Same fault | Always (guaranteed by blocking) | +3 |
 | Same asset | Asset matches and differs from location string | +4 |
-| Text compare | identical / similar / template_only | +5 / +3 / 0 |
+| Text compare | identical / similar | +5 / +3 |
 | Same requestor | `requestor_no` matches | +2 |
 | Time gap < 1 day | reported within 24 h | +3 |
 | Time gap < 2 days | reported within 24-48 h | +2 |

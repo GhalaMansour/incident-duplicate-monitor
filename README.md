@@ -187,9 +187,10 @@ signposts) line up:
   more **but** the numbers differ. This catches the case where two
   operators use the same boilerplate sentence ("تسرب في شبكة المياه
   عند المربع 5" vs "تسرب في شبكة المياه عند المربع 47") to describe
-  two genuinely different incidents. The dashboard surfaces an
-  advisory note so the reviewer sees the pattern, but the system does
-  not claim it is a duplicate.
+  two genuinely different incidents. The pair is dropped — the system
+  treats "different asset / grid numbers in the description" as proof
+  that the two reports are about physically different things, even
+  when the wording is identical.
 - **Similar.** Wording matches at 90 % or more and the pair does not
   fall into either of the categories above.
 
@@ -205,7 +206,6 @@ it a score by adding up evidence from the underlying signals:
 | Same asset (both present and matching) | 4 |
 | Description category — identical | 5 |
 | Description category — similar | 3 |
-| Description category — same template, different numbers | 0 (advisory) |
 | Same requestor number | 2 |
 | Reported on the same day | 3 |
 | Reported one day apart | 2 |
