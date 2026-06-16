@@ -1252,7 +1252,7 @@ def _bg_quick_scan_maximo():
         return
     _QUICK_SCAN_STATE.update({"running": True, "error": ""})
     try:
-        from duplicate_monitor.maximo_source import MaximoSource
+        from duplicate_monitor.sources.maximo import MaximoSource
         from duplicate_monitor import scanner as _sc
 
         src = MaximoSource()
@@ -1288,7 +1288,7 @@ def _bg_scan_maximo(force: bool = False, max_days: Optional[int] = None):
         }
     )
     try:
-        from duplicate_monitor.maximo_source import MaximoSource, MaximoSourceError
+        from duplicate_monitor.sources.maximo import MaximoSource, MaximoSourceError
         from duplicate_monitor import scanner as _sc
 
         src = MaximoSource()
@@ -1412,7 +1412,7 @@ def api_quick_scan_maximo():
             }
         )
     try:
-        from duplicate_monitor.maximo_source import MaximoSource
+        from duplicate_monitor.sources.maximo import MaximoSource
         from duplicate_monitor import scanner as _sc
 
         result = _sc.run_quick_scan(MaximoSource())
@@ -2267,6 +2267,7 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
       <button class="nav-item"        data-page="alerts"   onclick="goto('alerts')">  <span class="nav-icon"></span>مراجعة المكررات<span class="nav-badge" id="nb" style="display:none">0</span></button>
       <button class="nav-item"        data-page="reports"  onclick="goto('reports');loadReports()"><span class="nav-icon"></span>البلاغات</button>
       <button class="nav-item"        data-page="upload"   onclick="goto('upload');loadUploadInfo()"><span class="nav-icon"></span>رفع البلاغات</button>
+      <a class="nav-item" href="/settings" style="text-decoration:none;display:block"><span class="nav-icon">⚙</span>إعدادات الاتصال</a>
     </div>
     <div class="sidebar-foot">v2.0 · كدانه</div>
   </nav>
