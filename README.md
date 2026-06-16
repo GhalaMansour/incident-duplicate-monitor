@@ -153,20 +153,25 @@ treatment):
 **1. Blocking.** Pairs are grouped by `(location, fault)`. Anything
 that doesn't share both is dropped before scoring.
 
-**2. Text classification.** Three measurements are computed:
-`template_pct` (sentence structure with numbers replaced by `#`),
-`token_pct` (word overlap), and `numbers_overlap` (Jaccard on the raw
-numbers). The classifier then evaluates these rules **in order** and
-returns the first match:
+**2. Text classification.** The matcher reads the two descriptions and
+decides which of four categories the pair falls into. The decision is
+based on how closely the wording matches and whether the numbers in
+the descriptions (asset ids, grid references, signposts) line up.
 
-1. **`identical` (+5)** — `max(template_pct, token_pct) ≥ 90%` **and**
-   `numbers_overlap ≥ 50%`.
-2. **`template_only` (0, warning)** — `template_pct ≥ 90%` **and**
-   `numbers_overlap < 30%`. Same boilerplate filled with different
-   asset / grid numbers — a different incident, flagged for review.
-3. **`similar` (+3)** — `max(template_pct, token_pct) ≥ 90%` and rules
-   1–2 did not match.
-4. **`different` (0, pair dropped)** — anything below 90%.
+- **Identical** — wording matches at 90 % or more and the numbers also
+  match. The two SRs clearly describe the same incident. Adds 5 points
+  toward the duplicate score.
+- **Same template, different numbers** — wording matches at 90 % or
+  more, but the numbers differ (less than 30 % overlap). This is the
+  case where two reports use the exact same boilerplate sentence to
+  describe two different incidents (different tanks, different grids).
+  The pair adds 0 points and the dashboard surfaces an advisory note
+  so the reviewer is aware, but the system does not claim it is a
+  duplicate.
+- **Similar** — wording matches at 90 % or more and the pair does not
+  fall into either of the above categories. Adds 3 points.
+- **Different** — wording is below 90 %. The pair is dropped from
+  duplicate detection entirely.
 
 **3. Aggregate score.** Points are added across signals:
 
