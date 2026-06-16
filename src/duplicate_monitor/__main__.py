@@ -111,6 +111,24 @@ def cmd_diag() -> None:
     print("Duplicate Monitor - Diagnostics")
     print("=" * 60)
     print(CFG.summary())
+
+    # Detect a malformed .env file early — the most common operator
+    # mistake is line-ending corruption that smuggles the next variable
+    # name into the URL or leaves an invisible Arabic mark in a field.
+    _env_warnings: list[str] = []
+    if CFG.maximo_base_url and any(c in CFG.maximo_base_url for c in ("=", " ", "\t")):
+        _env_warnings.append(
+            "MAXIMO_BASE_URL يحتوي على محرف غريب (= أو مسافة). "
+            "غالباً ملف .env فيه فاصل أسطر تالف. أعد إنشاء .env من "
+            ".env.example وحرّره بمحرر يحفظ UTF-8 + CRLF (مثل VS Code)."
+        )
+    if CFG.maximo_user and "=" in CFG.maximo_user:
+        _env_warnings.append("MAXIMO_USER فيه = — راجع ملف .env.")
+    if _env_warnings:
+        print("-" * 60)
+        print("⚠️  تحذيرات في إعدادات .env:")
+        for w in _env_warnings:
+            print(f"   • {w}")
     print("-" * 60)
 
     if not CFG.has_maximo_credentials:
