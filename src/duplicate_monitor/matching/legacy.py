@@ -415,7 +415,7 @@ def _score(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def detect(df: pd.DataFrame, min_score: int = 5, max_days: int = 2) -> dict:
+def detect(df: pd.DataFrame, min_score: int = 7, max_days: int = 2) -> dict:
     """يكتشف المكررات ويرجّع {"pairs":[...], "groups":[...], "rows_by_sr":{}}."""
     col_sr = _find_col(df, "Service Request", "SR")
     col_loc = _find_col(df, "LOCATION", "Location")
