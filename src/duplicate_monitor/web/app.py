@@ -1497,6 +1497,67 @@ def _run_file_scan(path: Path) -> dict:
     }
 
 
+# ── Maximo settings — non-technical operators configure from the UI ───────
+
+
+@app.get("/api/settings")
+def api_settings_get():
+    """Return the Maximo settings the form should pre-fill.
+
+    The password is never returned — only a flag indicating whether one
+    is currently stored, so the form can show a placeholder like
+    "اتركها فاضية للإبقاء على الحالية".
+    """
+    from duplicate_monitor.storage import settings as _settings
+
+    return JSONResponse(_settings.get_for_display())
+
+
+@app.post("/api/settings")
+async def api_settings_post(request: Request):
+    """Persist Maximo settings from the dashboard form and test the
+    new connection in one round trip."""
+    from duplicate_monitor.sources.maximo import MaximoSource, MaximoSourceError
+    from duplicate_monitor.storage import settings as _settings
+
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "نص الطلب ليس JSON صالحاً")
+
+    url = (data.get("maximo_base_url") or "").strip()
+    user = (data.get("maximo_user") or "").strip()
+    password = data.get("maximo_pass") or ""
+
+    if not url or not user:
+        raise HTTPException(400, "الرجاء تعبئة رابط Maximo واسم المستخدم.")
+
+    _settings.save_from_form(
+        maximo_base_url=url,
+        maximo_user=user,
+        maximo_pass=password,
+    )
+
+    # Live connection probe so the form's "Save & Test" button gives an
+    # immediate verdict instead of silently committing wrong credentials.
+    try:
+        rows = MaximoSource().fetch_recent(lookback_minutes=10)
+        return JSONResponse(
+            {
+                "ok": True,
+                "message": f"تم الحفظ — Maximo متاح وأرجع {len(rows)} بلاغ في آخر 10 دقائق.",
+            }
+        )
+    except MaximoSourceError as exc:
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": f"تم الحفظ، لكن فشل الاتصال بـ Maximo: {exc}",
+            },
+            status_code=200,  # 200 because save itself succeeded
+        )
+
+
 @app.post("/api/upload")
 async def api_upload(file: UploadFile = File(...)):
     name = file.filename or ""
@@ -1575,6 +1636,133 @@ def api_reports():
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(_HTML, headers={"Cache-Control": "no-store"})
+
+
+_SETTINGS_HTML = r"""<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>إعدادات الاتصال بـ Maximo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Tahoma','Segoe UI',Arial,sans-serif;background:#f5f3ef;color:#2a2a2a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;line-height:1.6}
+.card{background:#fff;border:1px solid #e3ddc9;border-radius:14px;padding:36px 40px;max-width:520px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.06)}
+h1{font-size:22px;font-weight:700;margin-bottom:8px;color:#1a1a1a}
+.subtitle{font-size:13px;color:#666;margin-bottom:28px}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#333}
+input{width:100%;padding:10px 12px;border:1.5px solid #d9d3c1;border-radius:8px;font-size:14px;font-family:inherit;background:#fafaf7;transition:border-color .15s,background .15s;direction:ltr;text-align:left}
+input:focus{outline:none;border-color:#b9975b;background:#fff}
+.field{margin-bottom:18px}
+.field-rtl input{direction:rtl;text-align:right}
+.hint{font-size:11.5px;color:#888;margin-top:4px}
+button{width:100%;padding:12px;background:#b9975b;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s}
+button:hover{background:#a4854d}
+button:disabled{background:#ccc;cursor:not-allowed}
+.alert{padding:11px 14px;border-radius:8px;font-size:13px;margin-top:18px;display:none}
+.alert.ok{background:#e6f4ea;border:1px solid #a5d5b4;color:#1b5e20;display:block}
+.alert.err{background:#fdecea;border:1px solid #f5b5b0;color:#8a1a14;display:block}
+.back{display:inline-block;margin-top:18px;font-size:13px;color:#666;text-decoration:none}
+.back:hover{color:#333}
+.locked{background:#f4f0e3;color:#8a7544;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:22px;border:1px solid #e8dcb8}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>إعدادات الاتصال بـ Maximo</h1>
+  <p class="subtitle">يستخدمها النظام لقراءة البلاغات. تظلّ مخزّنة بأمان على الخادم.</p>
+
+  <div id="locked" class="locked" style="display:none">
+    بعض القيم محدّدة في ملف .env ولن تُغيَّر من هنا. اطلب من فريق التقنية تحديثها لو احتجت ذلك.
+  </div>
+
+  <form id="form" autocomplete="off">
+    <div class="field">
+      <label for="url">رابط Maximo</label>
+      <input id="url" name="maximo_base_url" placeholder="https://maximo.kidana.com.sa/maximo" />
+      <div class="hint">مثال: <span dir="ltr">https://maximo.kidana.com.sa/maximo</span></div>
+    </div>
+
+    <div class="field">
+      <label for="user">اسم المستخدم</label>
+      <input id="user" name="maximo_user" placeholder="اسم حساب الخدمة" />
+    </div>
+
+    <div class="field">
+      <label for="pass">كلمة السر</label>
+      <input id="pass" name="maximo_pass" type="password" placeholder="اتركها فاضية للإبقاء على الحالية" />
+      <div class="hint" id="passhint">لا تُعرض كلمة السر بعد الحفظ — اتركيها فاضية إذا ما بغيتي تغييرها.</div>
+    </div>
+
+    <button type="submit" id="save">حفظ واختبار الاتصال</button>
+  </form>
+
+  <div class="alert" id="alert"></div>
+  <a href="/" class="back">← العودة إلى لوحة التحكم</a>
+</div>
+
+<script>
+const form = document.getElementById('form');
+const alertBox = document.getElementById('alert');
+const saveBtn = document.getElementById('save');
+const passHint = document.getElementById('passhint');
+
+// Pre-fill on load.
+fetch('/api/settings').then(r => r.json()).then(data => {
+  document.getElementById('url').value = data.maximo_base_url || '';
+  document.getElementById('user').value = data.maximo_user || '';
+  if (!data.maximo_pass_set) {
+    passHint.textContent = 'لا توجد كلمة سر محفوظة حالياً — يجب إدخالها.';
+  }
+}).catch(() => {});
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  alertBox.className = 'alert';
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'جارٍ الحفظ والاختبار…';
+
+  const body = {
+    maximo_base_url: document.getElementById('url').value.trim(),
+    maximo_user: document.getElementById('user').value.trim(),
+    maximo_pass: document.getElementById('pass').value
+  };
+
+  try {
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    alertBox.textContent = data.message || (data.ok ? 'تم الحفظ.' : 'حدث خطأ.');
+    alertBox.className = 'alert ' + (data.ok ? 'ok' : 'err');
+    if (data.ok) {
+      document.getElementById('pass').value = '';
+      passHint.textContent = 'تم تحديث كلمة السر.';
+    }
+  } catch (err) {
+    alertBox.textContent = 'خطأ في الاتصال بالخادم: ' + err.message;
+    alertBox.className = 'alert err';
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'حفظ واختبار الاتصال';
+  }
+});
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page():
+    """Operator-facing page for the Maximo connection settings.
+
+    Exists so non-technical users can configure the integration from
+    the browser instead of editing the .env file by hand.
+    """
+    return HTMLResponse(_SETTINGS_HTML, headers={"Cache-Control": "no-store"})
 
 
 _HTML = r"""<!DOCTYPE html>
