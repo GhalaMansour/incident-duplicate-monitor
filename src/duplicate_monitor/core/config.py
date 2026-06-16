@@ -35,7 +35,29 @@ _load_dotenv_if_available()
 
 
 def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+    """Read an env var and sanitise it.
+
+    `.env` files edited on a mix of Windows / Unix / Mac tools sometimes
+    end up with stray CR (``\\r``), LF (``\\n``), or UTF-16 BOMs embedded
+    inside a value. python-dotenv passes those through unchanged, which
+    later causes confusing failures (the URL appears concatenated with
+    the next line's variable name, the credential field reads as
+    "missing", and so on).
+
+    Defensive cleanup here:
+      * cut at the first CR / LF so a malformed line cannot bleed into
+        the next variable's value,
+      * strip BOM and zero-width characters from the edges,
+      * strip surrounding whitespace.
+    """
+    raw = os.environ.get(name, default)
+    if not raw:
+        return ""
+    # Cut at the first newline character — anything past is parser bleed.
+    raw = raw.split("\n", 1)[0].split("\r", 1)[0]
+    # Strip BOMs (UTF-8 / UTF-16) and common invisible characters.
+    raw = raw.lstrip("﻿​‎‏").rstrip("﻿​‎‏")
+    return raw.strip()
 
 
 def _env_int(name: str, default: int) -> int:
