@@ -146,52 +146,91 @@ and the exact implementation locations.
 
 ## Scoring Algorithm
 
-Each candidate pair of SRs goes through three stages (see
-[`docs/scoring_algorithm.md`](docs/scoring_algorithm.md) for the full
-treatment):
+For every candidate pair of service requests, the algorithm asks four
+questions in order. A pair must pass all four hard requirements to be
+considered a duplicate; the dashboard then ranks survivors by how
+strongly they match.
 
-**1. Blocking.** Pairs are grouped by `(location, fault)`. Anything
-that doesn't share both is dropped before scoring.
+### The four hard requirements
 
-**2. Text classification.** The matcher reads the two descriptions and
-decides which of four categories the pair falls into. The decision is
-based on how closely the wording matches and whether the numbers in
-the descriptions (asset ids, grid references, signposts) line up.
+A pair is treated as a duplicate candidate **only if all four of these
+hold**. If any one fails, the pair is dropped from duplicate detection
+entirely.
 
-- **Identical** — wording matches at 90 % or more and the numbers also
-  match. The two SRs clearly describe the same incident. Adds 5 points
-  toward the duplicate score.
-- **Same template, different numbers** — wording matches at 90 % or
-  more, but the numbers differ (less than 30 % overlap). This is the
-  case where two reports use the exact same boilerplate sentence to
-  describe two different incidents (different tanks, different grids).
-  The pair adds 0 points and the dashboard surfaces an advisory note
-  so the reviewer is aware, but the system does not claim it is a
-  duplicate.
-- **Similar** — wording matches at 90 % or more and the pair does not
-  fall into either of the above categories. Adds 3 points.
-- **Different** — wording is below 90 %. The pair is dropped from
-  duplicate detection entirely.
+1. **Same location.** The two SRs must share the same `location` value
+   in Maximo. Different locations means different sites — never a
+   duplicate.
+2. **Same fault category.** The two SRs must report the same fault
+   type (the last segment of Maximo's taxonomy). Different fault
+   categories means different problems.
+3. **Same asset id — when both sides have one.** If both SRs carry an
+   asset id and the two ids differ, the pair is dropped. The reasoning
+   is simple: two physically different assets cannot be the same
+   incident. **If one side has no asset id** (operators sometimes
+   omit it), the system is lenient and lets the pair proceed; the
+   other signals carry the decision.
+4. **Description wording matches at 90 % or more.** The two
+   descriptions are compared by sentence structure and word overlap.
+   Anything below 90 % similarity is treated as a different report
+   and dropped.
 
-**3. Aggregate score.** Points are added across signals:
+### Description matching — what 90 % really means
+
+When two descriptions clear the 90 % bar, the algorithm classifies the
+pair into one of three positive categories based on whether the
+numbers inside the descriptions (asset ids, grid references,
+signposts) line up:
+
+- **Identical.** Wording matches at 90 % or more **and** the numbers
+  also match. The two SRs clearly describe the same incident.
+- **Same template, different numbers.** Wording matches at 90 % or
+  more **but** the numbers differ. This catches the case where two
+  operators use the same boilerplate sentence ("تسرب في شبكة المياه
+  عند المربع 5" vs "تسرب في شبكة المياه عند المربع 47") to describe
+  two genuinely different incidents. The dashboard surfaces an
+  advisory note so the reviewer sees the pattern, but the system does
+  not claim it is a duplicate.
+- **Similar.** Wording matches at 90 % or more and the pair does not
+  fall into either of the categories above.
+
+### The score itself
+
+Once a pair passes all four hard requirements, the algorithm assigns
+it a score by adding up evidence from the underlying signals:
 
 | Signal | Points |
 |---|---|
-| Same location | +4 |
-| Same fault | +3 |
-| Same asset (when distinct from location) | +4 |
-| Text class | +5 / +3 / 0 |
-| Same requestor number | +2 |
-| Same day / next day / two days | +3 / +2 / +1 |
+| Same location | 4 |
+| Same fault | 3 |
+| Same asset (both present and matching) | 4 |
+| Description category — identical | 5 |
+| Description category — similar | 3 |
+| Description category — same template, different numbers | 0 (advisory) |
+| Same requestor number | 2 |
+| Reported on the same day | 3 |
+| Reported one day apart | 2 |
+| Reported two days apart | 1 |
 
-A pair must exceed `LM_MIN_SCORE` (default 7) to be retained and
-`LM_ALERT_SCORE` (default 8) to raise an alert. Surviving pairs are
-collapsed into groups via Union-Find so transitive duplicates (A↔B
-and B↔C) end up in the same group.
+The pair is **retained** in the duplicate store once its total
+reaches `LM_MIN_SCORE` (default 7) and **raises an alert** in the
+dashboard once it reaches `LM_ALERT_SCORE` (default 8). Surviving
+pairs that share an SR are then collapsed into one group, so that if
+A matches B and B matches C, the three appear together for the
+reviewer.
 
-Implementation: `src/duplicate_monitor/matching/scorer.py` (per-pair),
-`src/duplicate_monitor/matching/legacy.py` (bulk + grouping),
-`src/duplicate_monitor/matching/engine.py` (live single-SR path).
+### Where the rules live in the code
+
+- `src/duplicate_monitor/matching/scorer.py` — pair scoring and
+  description classification (`smart_text_compare`, `score_pair`).
+- `src/duplicate_monitor/matching/legacy.py` — bulk detector that
+  applies all four hard requirements across the full SR set and
+  produces the duplicate groups.
+- `src/duplicate_monitor/matching/engine.py` — the live single-SR
+  path used when one new SR needs to be compared against an existing
+  pool.
+
+For the full discussion of design decisions and the tuning history,
+see [`docs/scoring_algorithm.md`](docs/scoring_algorithm.md).
 
 ---
 
