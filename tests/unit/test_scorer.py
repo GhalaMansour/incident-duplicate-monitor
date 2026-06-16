@@ -107,6 +107,76 @@ def test_missing_asset_on_one_side_does_not_drop_pair() -> None:
     assert score > 0
 
 
+def test_live_and_bulk_paths_agree_on_same_pair() -> None:
+    """Both the live path (engine.py) and the bulk path (legacy._score)
+    must delegate to scorer.score_pair and produce identical scores for
+    the same pair. This locks the rule-consistency the user requires."""
+    from duplicate_monitor.matching import engine, legacy
+
+    # Bulk-path / scorer-shaped record
+    bulk_a = {
+        "sr": "SR-1",
+        "loc": "MN03",
+        "fault": "انقطاع كهرباء",
+        "asset": "303076",
+        "detail": "انقطاع كامل للإنارة في الشارع الرئيسي",
+        "reported_dt": datetime(2026, 5, 21, 10, 0, 0),
+    }
+    bulk_b = {**bulk_a, "sr": "SR-2", "reported_dt": datetime(2026, 5, 21, 10, 30, 0)}
+    bulk_score, _, _ = legacy._score(bulk_a, bulk_b, max_days=2)
+
+    # Live-path / poller-shaped record (same SRs, raw field names)
+    live_a = {
+        "location": "MN03",
+        "summary": "كهرباء, انقطاع كهرباء",
+        "asset": "303076",
+        "detail": "انقطاع كامل للإنارة في الشارع الرئيسي",
+        "reported": "2026-05-21 10:00:00",
+    }
+    live_b = {**live_a, "reported": "2026-05-21 10:30:00"}
+    live_result = engine.score_pair(live_a, live_b, max_days=2)
+
+    assert live_result is not None
+    assert live_result["score"] == bulk_score
+
+
+def test_strict_gates_drop_pair_with_zero_score() -> None:
+    """When any hard gate fails, score_pair must return 0 and record
+    which gate fired in metadata."""
+    base = {
+        "loc": "MN03",
+        "fault": "انقطاع كهرباء",
+        "asset": "303076",
+        "detail": "انقطاع كامل",
+        "reported_dt": datetime(2026, 5, 21, 10, 0, 0),
+    }
+    # Different location
+    a = base
+    b = {**base, "loc": "MN04"}
+    score, _, meta = score_pair(a, b)
+    assert score == 0 and meta["gate"] == "location"
+
+    # Different fault
+    b = {**base, "fault": "حريق"}
+    score, _, meta = score_pair(a, b)
+    assert score == 0 and meta["gate"] == "fault"
+
+    # Different asset (both present)
+    b = {**base, "asset": "404099"}
+    score, _, meta = score_pair(a, b)
+    assert score == 0 and meta["gate"] == "asset"
+
+    # Different text
+    b = {**base, "detail": "حادث مختلف تماماً عن الأول"}
+    score, _, meta = score_pair(a, b)
+    assert score == 0 and meta["gate"] == "text"
+
+    # Time gap too large
+    b = {**base, "reported_dt": datetime(2026, 5, 28, 10, 0, 0)}
+    score, _, meta = score_pair(a, b, max_days=2)
+    assert score == 0 and meta["gate"] == "time"
+
+
 def test_parse_date_accepts_iso_and_us_formats() -> None:
     assert parse_date("2026-05-21 10:00:00") == datetime(2026, 5, 21, 10, 0, 0)
     assert parse_date("5/21/26 10:00 AM") == datetime(2026, 5, 21, 10, 0, 0)

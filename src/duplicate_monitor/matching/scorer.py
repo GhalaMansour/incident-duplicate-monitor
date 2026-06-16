@@ -112,74 +112,109 @@ def smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
     return ("different", 0, final_pct)
 
 
-def score_pair(record_a: dict, record_b: dict) -> tuple[int, list[str], dict]:
+def score_pair(record_a: dict, record_b: dict, *, max_days: int = 2) -> tuple[int, list[str], dict]:
     """Score the similarity between two service-request records.
 
-    The caller is expected to have already blocked the records by
-    (fault, location) so a positive base score is added for those two
-    matches. Additional points come from matching asset, smart text
-    comparison, requestor number, and the reporting time gap.
+    This is the single source of truth for pair scoring. Both the live
+    detection path (``engine.py``) and the bulk detection path
+    (``legacy.py``) delegate to this function so the four hard
+    requirements and the score values are guaranteed identical.
+
+    The four hard requirements (any failure returns score 0):
+      1. Same location (``loc``).
+      2. Same fault category (``fault``).
+      3. Same asset id when both sides carry one. Lenient when either
+         side has none.
+      4. Description similarity >= 90 % (text class ``identical`` or
+         ``similar``). ``template_only`` and ``different`` both fail.
+
+    Plus a soft time gate: if both ``reported_dt`` values are present
+    and the gap exceeds ``max_days``, the pair is dropped.
 
     Args:
         record_a, record_b: Dicts with the keys consumed by the scorer:
             ``loc``, ``fault``, ``asset``, ``detail``, ``requestor_no``,
             ``reported_dt``. Missing keys default to falsy values.
+        max_days: Maximum allowed reporting gap in days. Pairs reported
+            further apart are dropped.
 
     Returns:
         Tuple ``(score, reasons, metadata)``. ``score`` is the integer
-        total. ``reasons`` is a human-readable list of contributing
-        signals (Arabic). ``metadata`` carries diagnostic fields like
-        ``tpl_pct`` and ``txt_class``.
+        total — 0 if any hard gate failed. ``reasons`` lists the
+        contributing signals (Arabic). ``metadata`` carries diagnostic
+        fields including ``tpl_pct``, ``txt_class``, and ``gate``
+        (set to the name of the failed gate when score is 0).
     """
-    score = 0
     reasons: list[str] = []
     metadata: dict = {"tpl_pct": 0, "txt_class": "different"}
 
-    # Hard gate: when both SRs carry an asset id and the two ids differ,
-    # the pair cannot be a duplicate — same wording or not, they describe
-    # incidents on physically different assets. When either side has no
-    # asset id (operator omitted it), the gate is lenient and we fall
-    # back to the other signals.
-    asset_a = record_a.get("asset")
-    asset_b = record_b.get("asset")
+    # ── Gate 1: same location (required) ────────────────────────────
+    loc_a = record_a.get("loc") or ""
+    loc_b = record_b.get("loc") or ""
+    if not loc_a or not loc_b or normalize_arabic(loc_a) != normalize_arabic(loc_b):
+        metadata["gate"] = "location"
+        return 0, ["موقعان مختلفان"], metadata
+
+    # ── Gate 2: same fault (required) ───────────────────────────────
+    fault_a = record_a.get("fault") or ""
+    fault_b = record_b.get("fault") or ""
+    if not fault_a or not fault_b or normalize_arabic(fault_a) != normalize_arabic(fault_b):
+        metadata["gate"] = "fault"
+        return 0, ["عطلان مختلفان"], metadata
+
+    # ── Gate 3: same asset when both present (required) ────────────
+    asset_a = (record_a.get("asset") or "").strip()
+    asset_b = (record_b.get("asset") or "").strip()
     if asset_a and asset_b and asset_a != asset_b:
+        metadata["gate"] = "asset"
         metadata["asset_mismatch"] = True
-        reasons.append("أصول مختلفة — ليس تكراراً")
-        return 0, reasons, metadata
+        return 0, ["أصول مختلفة — ليس تكراراً"], metadata
 
-    if record_a.get("loc"):
-        reasons.append(f"نفس الموقع ({record_a['loc']})")
-        score += 4
-
-    if record_a.get("fault"):
-        reasons.append(f"نفس العطل ({record_a['fault']})")
-        score += 3
-
-    if asset_a and asset_b and asset_a == asset_b:
-        loc_n = normalize_arabic(record_a.get("loc", ""))
-        asset_n = normalize_arabic(asset_a)
-        if asset_n != loc_n:
-            score += 4
-            reasons.append(f"نفس الأصل ({asset_a})")
-        else:
-            reasons.append(f"نفس الأصل/الموقع ({asset_a})")
-
-    classification, points, tpl_pct = smart_text_compare(
+    # ── Gate 4: text similarity >= 90 % (required) ─────────────────
+    classification, txt_points, tpl_pct = smart_text_compare(
         record_a.get("detail", ""),
         record_b.get("detail", ""),
     )
     metadata["tpl_pct"] = tpl_pct
     metadata["txt_class"] = classification
-    if points > 0:
-        score += points
-        label = {
-            "identical": f"تفاصيل متطابقة ({tpl_pct}%)",
-            "similar": f"تفاصيل متشابهة ({tpl_pct}%)",
-        }.get(classification, "")
-        if label:
-            reasons.append(label)
-    elif classification == "template_only":
-        reasons.append(f"تنبيه: قالب موحّد بأرقام مختلفة ({tpl_pct}%)")
+    if classification in ("different", "template_only"):
+        metadata["gate"] = "text"
+        if classification == "template_only":
+            reasons.append(f"تنبيه: قالب موحّد بأرقام مختلفة ({tpl_pct}%)")
+        return 0, reasons, metadata
+
+    # ── Time gate (soft, configurable) ──────────────────────────────
+    dt_a, dt_b = record_a.get("reported_dt"), record_b.get("reported_dt")
+    gap_days: float | None = None
+    if dt_a and dt_b:
+        gap_days = abs((dt_b - dt_a).total_seconds()) / 86400.0
+        if gap_days > max_days:
+            metadata["gate"] = "time"
+            return 0, [f"فارق زمني كبير ({gap_days:.1f} يوم)"], metadata
+
+    # ── All gates passed — tally the points ─────────────────────────
+    score = 0
+
+    reasons.append(f"نفس الموقع ({loc_a})")
+    score += 4
+
+    reasons.append(f"نفس العطل ({fault_a})")
+    score += 3
+
+    if asset_a and asset_b:
+        if normalize_arabic(asset_a) != normalize_arabic(loc_a):
+            score += 4
+            reasons.append(f"نفس الأصل ({asset_a})")
+        else:
+            reasons.append(f"نفس الأصل/الموقع ({asset_a})")
+
+    score += txt_points
+    label = {
+        "identical": f"تفاصيل متطابقة ({tpl_pct}%)",
+        "similar": f"تفاصيل متشابهة ({tpl_pct}%)",
+    }.get(classification, "")
+    if label:
+        reasons.append(label)
 
     if (
         record_a.get("requestor_no")
@@ -189,9 +224,7 @@ def score_pair(record_a: dict, record_b: dict) -> tuple[int, list[str], dict]:
         score += 2
         reasons.append(f"نفس رقم المبلّغ ({record_a['requestor_no']})")
 
-    dt_a, dt_b = record_a.get("reported_dt"), record_b.get("reported_dt")
-    if dt_a and dt_b:
-        gap_days = abs((dt_b - dt_a).total_seconds()) / 86400.0
+    if gap_days is not None:
         if gap_days < 1:
             score += 3
             reasons.append("نفس اليوم (+3)")

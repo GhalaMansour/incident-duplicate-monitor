@@ -220,14 +220,24 @@ reviewer.
 
 ### Where the rules live in the code
 
-- `src/duplicate_monitor/matching/scorer.py` — pair scoring and
-  description classification (`smart_text_compare`, `score_pair`).
-- `src/duplicate_monitor/matching/legacy.py` — bulk detector that
-  applies all four hard requirements across the full SR set and
-  produces the duplicate groups.
-- `src/duplicate_monitor/matching/engine.py` — the live single-SR
-  path used when one new SR needs to be compared against an existing
-  pool.
+All four hard requirements and the full additive scoring live in a
+single function — `scorer.score_pair` — so the live path and the bulk
+path produce identical results for the same pair. The other two files
+are thin wrappers that adapt their input shape and add their own
+output shape:
+
+- `src/duplicate_monitor/matching/scorer.py` — **the source of
+  truth.** Defines `smart_text_compare`, the four hard gates, and
+  `score_pair`. Every other code path delegates here.
+- `src/duplicate_monitor/matching/engine.py` — the **live path**.
+  Used by the poller every 15 seconds when a new SR arrives. Takes
+  the raw poller record, normalises it, calls `scorer.score_pair`,
+  and writes pair-level alerts to the database.
+- `src/duplicate_monitor/matching/legacy.py` — the **bulk path**.
+  Used by the scanner and the Excel-upload feature. Applies blocking
+  for performance, calls `scorer.score_pair` per pair, then runs
+  Union-Find to produce duplicate groups (so a triple A↔B↔C appears
+  as one group instead of three pairs).
 
 For the full discussion of design decisions and the tuning history,
 see [`docs/scoring_algorithm.md`](docs/scoring_algorithm.md).

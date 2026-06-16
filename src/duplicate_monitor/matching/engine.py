@@ -17,8 +17,7 @@ from datetime import datetime
 from typing import Optional
 
 from duplicate_monitor.core.config import CFG
-from duplicate_monitor.matching.normalize import normalize_arabic as _normalize_ar
-from duplicate_monitor.matching.scorer import smart_text_compare as _smart_text_compare
+from duplicate_monitor.matching.scorer import score_pair as _scorer_score_pair
 
 log = logging.getLogger("duplicate_monitor.engine")
 
@@ -75,73 +74,41 @@ def _fault_blocking(summary: str) -> str:
 # ─── Scoring — mirrors find_duplicates.detect() per-pair logic ────────────
 
 
+def _to_scorer_record(raw: dict) -> dict:
+    """Normalize a poller-shaped record into the dict shape the scorer
+    consumes. Returns the keys ``loc``, ``fault``, ``asset``, ``detail``,
+    ``requestor_no``, ``reported_dt``."""
+    summary = raw.get("summary", "")
+    return {
+        "loc": raw.get("location", ""),
+        "fault": _fault_blocking(summary),
+        "asset": (raw.get("asset", "") or "").strip(),
+        "detail": raw.get("detail", "") or summary,
+        "requestor_no": raw.get("requestor_no", ""),
+        "reported_dt": _parse_dt(raw.get("reported", "")),
+    }
+
+
 def score_pair(new: dict, existing: dict, *, max_days: int = 2) -> Optional[dict]:
     """
     Returns {score, reasons, classification} if the pair is a candidate,
-    else None when blocked (e.g. time gap too large).
+    else None when any hard gate fails or the time gap exceeds
+    ``max_days``.
+
+    Delegates the full scoring decision to ``scorer.score_pair`` so the
+    live path and the bulk path stay rule-identical.
     """
-    score = 0
-    reasons: list[str] = []
-
-    # ── Time gate ─────────────────────────────────────────────────
-    d1 = _parse_dt(new.get("reported", ""))
-    d2 = _parse_dt(existing.get("reported", ""))
-    if d1 and d2:
-        delta = abs((d1 - d2).total_seconds())
-        gap_days = delta / 86400.0
-        if gap_days > max_days:
-            return None
-        if d1.date() == d2.date():
-            score += 2
-            reasons.append("نفس اليوم")
-        elif gap_days <= 7:
-            score += 1
-            reasons.append("نفس الأسبوع")
-
-    # ── Fault (last 2 parts of Summary) ───────────────────────────
-    f1 = _normalize_ar(_fault_blocking(new.get("summary", "")))
-    f2 = _normalize_ar(_fault_blocking(existing.get("summary", "")))
-    if not f1 or not f2 or f1 != f2:
+    score, reasons, metadata = _scorer_score_pair(
+        _to_scorer_record(new),
+        _to_scorer_record(existing),
+        max_days=max_days,
+    )
+    if score == 0:
         return None
-    score += 3
-    reasons.append("نفس العطل")
-
-    # ── Location ──────────────────────────────────────────────────
-    l1 = _normalize_ar(new.get("location", ""))
-    l2 = _normalize_ar(existing.get("location", ""))
-    if not l1 or not l2 or l1 != l2:
-        return None
-    score += 4
-    reasons.append("نفس الموقع")
-
-    # ── Asset ─────────────────────────────────────────────────────
-    a1 = (new.get("asset", "") or "").strip()
-    a2 = (existing.get("asset", "") or "").strip()
-    if a1 and a2 and a1 != a2:
-        return None
-    if a1 and a2:
-        score += 4
-        reasons.append("نفس الأصل")
-
-    # ── Text similarity ───────────────────────────────────────────
-    d_a = new.get("detail", "") or new.get("summary", "")
-    d_b = existing.get("detail", "") or existing.get("summary", "")
-    if d_a and d_b:
-        cls, bonus, sim = _smart_text_compare(d_a, d_b)
-        sim_pct = int(sim if sim > 1 else sim * 100)
-        if cls in ("different", "template_only") or sim_pct < 90:
-            return None
-        if bonus:
-            score += bonus
-            reasons.append(f"نص متشابه ({sim_pct}%)")
-        classification = cls
-    else:
-        return None
-
     return {
         "score": score,
         "reasons": reasons,
-        "classification": classification,
+        "classification": metadata.get("txt_class", "different"),
     }
 
 

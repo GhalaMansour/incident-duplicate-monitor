@@ -488,75 +488,14 @@ class DSU:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _score(r1: dict, r2: dict) -> tuple[int, list[str], dict]:
-    """
-    احسب نقاط التشابه بين بلاغين. يرجّع (المجموع، الأسباب، metadata).
+def _score(
+    r1: dict, r2: dict, *, max_days: int = 2
+) -> tuple[int, list[str], dict]:
+    """Bulk-path pair scoring — delegates to ``scorer.score_pair`` so the
+    bulk and live paths produce identical results for the same input."""
+    from duplicate_monitor.matching.scorer import score_pair as _shared_score_pair
 
-    ملاحظة: العطل والموقع مضمونان من الـ blocking ولا يُحتسبان هنا.
-    """
-    score = 0
-    reasons = []
-    meta = {"tpl_pct": 0, "txt_class": "different"}
-
-    # ١) الموقع مضمون (blocking) — +4 للموقع
-    if r1["loc"]:
-        reasons.append(f"نفس الموقع ({r1['loc']})")
-        score += 4
-
-    # ١ب) العطل مضمون (blocking) — +3 للعطل
-    if r1["fault"]:
-        reasons.append(f"نفس العطل ({r1['fault']})")
-        score += 3
-
-    # ٢) نفس الأصل +4 — فقط إذا يختلف عن الموقع (تفادياً للاحتساب المزدوج)
-    if r1["asset"] and r2["asset"] and r1["asset"] == r2["asset"]:
-        loc_n = _normalize_ar(r1["loc"])
-        ast_n = _normalize_ar(r1["asset"])
-        if ast_n != loc_n:
-            score += 4
-            reasons.append(f"نفس الأصل ({r1['asset']})")
-        else:
-            reasons.append(f"نفس الأصل/الموقع ({r1['asset']})")  # مذكور مرة واحدة فقط
-
-    # ٣) مقارنة التفاصيل الذكية
-    cls, pts, tpl_pct = _smart_text_compare(r1["detail"], r2["detail"])
-    meta["tpl_pct"] = tpl_pct
-    meta["txt_class"] = cls
-    if pts > 0:
-        score += pts
-        label = {
-            "identical": f"تفاصيل متطابقة ({tpl_pct}%)",
-            "similar": f"تفاصيل متشابهة ({tpl_pct}%)",
-        }.get(cls, "")
-        if label:
-            reasons.append(label)
-    elif cls == "template_only":
-        reasons.append(f"تنبيه: قالب موحّد بأرقام مختلفة ({tpl_pct}%)")
-
-    # ٤) نفس رقم المبلّغ +2
-    if (
-        r1.get("requestor_no")
-        and r2.get("requestor_no")
-        and r1["requestor_no"] == r2["requestor_no"]
-    ):
-        score += 2
-        reasons.append(f"نفس رقم المبلّغ ({r1['requestor_no']})")
-
-    # ٥) الفارق الزمني (يُحتسب في النقاط)
-    dt1, dt2 = r1.get("reported_dt"), r2.get("reported_dt")
-    if dt1 and dt2:
-        gap_days = abs((dt2 - dt1).total_seconds()) / 86400
-        if gap_days < 1:
-            score += 3
-            reasons.append("نفس اليوم (+3)")
-        elif gap_days < 2:
-            score += 2
-            reasons.append("فارق يوم واحد (+2)")
-        elif gap_days <= 2:
-            score += 1
-            reasons.append("فارق يومان (+1)")
-
-    return score, reasons, meta
+    return _shared_score_pair(r1, r2, max_days=max_days)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -698,30 +637,10 @@ def detect(df: pd.DataFrame, min_score: int = 5, max_days: int = 2) -> dict:
             return
         pair_keys.add(key)
 
-        # ── بوابة الأصل: إذا الطرفان عندهما أصل فيجب أن يكون متطابقاً ──
-        a1, a2 = r1["asset"], r2["asset"]
-        if a1 and a2 and a1 != a2:
-            return
-
-        # ── بوابة الزمن: الفارق يجب أن يكون ≤ max_days (إذا التاريخ موجود) ──
-        dt1, dt2 = r1["reported_dt"], r2["reported_dt"]
-        if dt1 and dt2:
-            gap_days = abs((dt2 - dt1).total_seconds()) / 86400
-            if gap_days > max_days:
-                return
-
-        # ── بوابة التفاصيل: النص يجب أن يكون متشابهاً 90% أو أكثر ──
-        # استثناء: لو التصنيف الكامل متطابق تماماً (بما فيه الناقص)،
-        # فالموقع + التصنيف كافيَين → نتجاوز بوابة التفاصيل
-        full1 = _normalize_ar(r1.get("fault_full", ""))
-        full2 = _normalize_ar(r2.get("fault_full", ""))
-        exact_fault_match = bool(full1 and full1 == full2)
-        txt_cls, _, tpl_pct = _smart_text_compare(r1["detail"], r2["detail"])
-        if not exact_fault_match:
-            if txt_cls in ("different", "template_only") or tpl_pct < 90:
-                return
-
-        sc, reasons, meta = _score(r1, r2)
+        # All hard gates (asset, location, fault, text, time) and the
+        # full additive scoring now live in scorer.score_pair (which
+        # _score delegates to). A score of 0 means a gate failed.
+        sc, reasons, meta = _score(r1, r2, max_days=max_days)
         if sc < min_score:
             return
         pairs_raw.append(
