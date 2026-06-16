@@ -1,33 +1,24 @@
 #!/usr/bin/env python3
-"""
-find_duplicates.py v3 -- كشف البلاغات المكررة في ماكسيمو (Dropdowns + التفاصيل)
+"""Bulk duplicate detector used by the file-upload feature and the
+periodic full scan.
 
-نظام النقاط:
-  نفس العطل (fault_category)              +3   (من Summary dropdown)
-  نفس الموقع (LOCATION)                   +4   (dropdown موثوق)
-  نفس الأصل (Asset)                       +4   (dropdown موثوق)
-  مقارنة ذكية للتفاصيل (Details):
-    identical — قالب+أرقام متطابقة        +5
-    similar   — قالب متشابه >= 90%        +3
-    template_only — قالب نفس/أرقام مختلفة +0  (يمنع الإيجابيات الزائفة)
+The actual pair scoring (location, fault, asset, text classification,
+requestor, time gap) lives in ``duplicate_monitor.matching.scorer``;
+this module delegates to ``scorer.score_pair`` so the live path and
+the bulk path return identical scores for the same input.
 
-ملاحظة: الزمن لا يدخل في النقاط — البلاغ المكرر قد يُفتح بعد ساعات أو أشهر.
-         الفارق الزمني يُعرض فقط لمساعدة المراجع على الفهم.
+What this module does on top of the shared scorer:
+  * Loads an Excel file from disk (HTML-XLS or .xlsx) into a DataFrame.
+  * Normalizes each row into the dict shape the scorer consumes.
+  * Blocks pairs by (fault, location) for performance.
+  * Collects all surviving pairs into duplicate groups via Union-Find.
 
-المستويات:
-  مؤكد  >= 8 نقاط
-  محتمل 5-7 نقاط
-  ضعيف 2-4 نقاط
-
-التجميع: Union-Find يدمج الأزواج المتداخلة في مجموعات.
-
-الاستخدام:
-  python scripts/find_duplicates.py البلاغات.xlsx
-  python scripts/find_duplicates.py البلاغات.xlsx --output تقرير.xlsx --min-score 2
+Usage as a script (legacy CLI, mainly for diagnostics):
+  python -m duplicate_monitor.matching.legacy البلاغات.xlsx
+  python -m duplicate_monitor.matching.legacy البلاغات.xlsx --output تقرير.xlsx
 """
 
 import argparse
-import difflib
 import io
 import re
 import itertools
@@ -273,57 +264,11 @@ def _fault(summary: str) -> str:
     return _normalize_ar(parts[-1]) if parts else _normalize_ar(summary)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# مقارنة النص الذكية: قالب + أرقام
-# ─────────────────────────────────────────────────────────────────────────────
+# Smart text comparison and its helper functions used to live here.
+# After the matching layer was unified, scorer.smart_text_compare became
+# the single implementation and the duplicates here were removed.
 
 _NUM_RE = re.compile(r"\d+(?:/\d+)?")  # أرقام عادية + شواخص X/Y
-
-
-def _smart_text_compare(a: str, b: str) -> tuple[str, int, int]:
-    """
-    يقارن نصّين بطريقة ذكية تفصل بين قالب الجملة والأرقام داخلها.
-    يرجّع: (التصنيف، النقاط، نسبة تشابه القالب %)
-
-    التصنيف:
-      'identical'     = قالب 90%+ AND أرقام متطابقة ≥ 50%   → +2 (مكرر فعلي)
-      'similar'       = قالب 90%+ بدون شرط الأرقام         → +3
-      'template_only' = قالب 90%+ لكن أرقام مختلفة (< 30%) → 0 ⚠️
-      'different'     = قالب < 90%                          → 0
-    """
-    # ١) قالب النص بدون أرقام (نستبدل كل رقم بـ #)
-    a_norm = _normalize_ar(_strip_html(a or ""))
-    b_norm = _normalize_ar(_strip_html(b or ""))
-    a_template = _NUM_RE.sub("#", a_norm)
-    b_template = _NUM_RE.sub("#", b_norm)
-
-    sm = difflib.SequenceMatcher(None, a_template, b_template, autojunk=False)
-    if sm.quick_ratio() < 0.70:
-        tpl_pct = int(sm.ratio() * 100)
-    else:
-        tpl_pct = int(sm.ratio() * 100)
-    # token_pct is computed on the original normalized text (with numbers
-    # preserved) so that same-template / different-number pairs trip the
-    # template_only guard instead of being mis-classified as similar.
-    token_pct = _token_similarity_pct(a_norm, b_norm)
-    final_pct = max(tpl_pct, token_pct)
-
-    # ٢) الأرقام المذكورة
-    a_nums = set(_NUM_RE.findall(a or ""))
-    b_nums = set(_NUM_RE.findall(b or ""))
-    if a_nums or b_nums:
-        nums_overlap = len(a_nums & b_nums) / max(len(a_nums | b_nums), 1)
-    else:
-        nums_overlap = 1.0  # لا أرقام في الطرفين = اعتبرها متطابقة
-
-    # ٣) الحكم
-    if final_pct >= 90 and nums_overlap >= 0.5:
-        return ("identical", 5, final_pct)  # نص متطابق حقيقي → +5
-    if tpl_pct >= 90 and nums_overlap < 0.3:
-        return ("template_only", 0, final_pct)  # قالب موحّد بأرقام مختلفة → +0
-    if final_pct >= 90:
-        return ("similar", 3, final_pct)  # نص متشابه ≥90% → +3
-    return ("different", 0, final_pct)
 
 
 _DETAIL_STOPWORDS = {
@@ -354,42 +299,9 @@ _DETAIL_STOPWORDS = {
 }
 
 
-def _detail_tokens(s: str) -> set[str]:
-    # Numbers are preserved so same-template / different-number pairs
-    # diverge at the token level (feeds the template_only guard).
-    toks = re.findall(r"[\u0600-\u06FFa-zA-Z0-9/]+", s or "")
-    return {t for t in toks if len(t) > 1 and t not in _DETAIL_STOPWORDS}
-
-
-def _token_similarity_pct(a: str, b: str) -> int:
-    ta, tb = _detail_tokens(a), _detail_tokens(b)
-    if not ta or not tb:
-        return 0
-    inter = len(ta & tb)
-    dice = (2 * inter) / max(len(ta) + len(tb), 1)
-    containment = inter / max(min(len(ta), len(tb)), 1)
-    fuzzy = _fuzzy_token_containment(ta, tb)
-    # Short field reports often say the same issue with extra context in one side.
-    # Containment catches that without weakening the hard asset/location/fault gates.
-    pct = max(dice, containment * 0.85, fuzzy)
-    return int(round(pct * 100))
-
-
-def _fuzzy_token_containment(a: set[str], b: set[str]) -> float:
-    small, large = (a, b) if len(a) <= len(b) else (b, a)
-    if not small:
-        return 0.0
-    matched = 0
-    for tok in small:
-        if tok in large:
-            matched += 1
-            continue
-        if any(
-            difflib.SequenceMatcher(None, tok, other, autojunk=False).ratio() >= 0.72
-            for other in large
-        ):
-            matched += 1
-    return matched / len(small)
+# Token-similarity helpers used to live here as part of the bulk
+# smart-text-compare implementation. They are now unused; the scorer
+# module owns the canonical implementations.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -559,25 +471,19 @@ def detect(df: pd.DataFrame, min_score: int = 5, max_days: int = 2) -> dict:
         # التصنيف عبارة عن 4 أقسام مفصولة بفواصل:
         #   "مجمعات دورات المياه,الدورات العامة,غرفة التفتيش,تلف احد المكونات"
         #
-        # المشكلة: بعض البلاغات تُدخَل بقسمين فقط:
-        #   "مجمعات دورات المياه,تلف احد المكونات"
-        # آخر جزئَين هنا يختلفان عن آخر جزئَين في البلاغ ذي الأربعة أقسام.
-        #
-        # الحل: نستخدم آخر قسم واحد فقط كمفتاح الـ blocking
-        # (الأكثر تحديداً ومشتركاً بين جميع مستويات الإدخال).
-        # أما fault_o (للعرض والتسمية) فنبقيه آخر قسمَين.
+        # نستخدم آخر قسمَين كمفتاح للـ blocking وللعرض معاً —
+        # تجربة الإنتاج أظهرت أن آخر قسمَين كافٍ لتحديد العطل بدقة،
+        # ومتوافق مع البلاغات اللي فيها قسمان فقط أو أربعة.
         # ──────────────────────────────────────────────────────────────────
         _parts = [p.strip() for p in fault_full_o.split(",") if p.strip()]
         fault_o = ",".join(_parts[-2:]) if len(_parts) >= 2 else fault_full_o
         fault_n = _normalize_ar(fault_o)
-        fault_last = _normalize_ar(_parts[-1]) if _parts else fault_n  # آخر قسم واحد للـ blocking
 
         row = {
             "sr": sr,
             "loc": loc,
             "asset": asset,
             "fault": fault_n,
-            "fault_last": fault_last,  # آخر قسم واحد — مفتاح الـ blocking
             "fault_orig": fault_o,
             "fault_full": fault_full_o,
             "detail": detail,
