@@ -41,9 +41,6 @@ htmlcov/
 src/duplicate_monitor/monitor.db
 *.db-journal
 
-# Settings written by the dashboard settings page (Maximo credentials)
-src/duplicate_monitor/user_settings.json
-
 # Log files
 src/duplicate_monitor/monitor.log
 *.log

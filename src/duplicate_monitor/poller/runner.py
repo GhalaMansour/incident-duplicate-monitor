@@ -226,14 +226,6 @@ def _on_signal(signum, _frame):
 def main_loop():
     """Block forever, polling at CFG.poll_interval_sec intervals."""
     db.init_db()
-
-    # Overlay any values the operator saved through the dashboard
-    # settings page so the live service uses them even when the
-    # operator never touched .env.
-    from duplicate_monitor.storage import settings as _settings
-
-    _settings.apply_to_cfg()
-
     sources = SourceManager()
 
     log.info("=" * 60)
