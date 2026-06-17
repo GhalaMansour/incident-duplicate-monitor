@@ -1365,6 +1365,7 @@ def _bg_scan_maximo(force: bool = False, max_days: Optional[int] = None):
             "fetched": 0,
         }
         result = _sc.run_scan(src, force=force, max_days=max_days)
+        _SCAN_STATE["last_summary"] = result
         if result.get("error"):
             _SCAN_STATE["error"] = result["error"]
         else:
@@ -1482,6 +1483,7 @@ def api_quick_scan_maximo():
 @app.get("/api/scan-status")
 def api_scan_status():
     scan = _load_scan()
+    last_summary = _SCAN_STATE.get("last_summary") or {}
     return JSONResponse(
         {
             "running": _SCAN_STATE.get("running", False),
@@ -1490,6 +1492,11 @@ def api_scan_status():
             "quick_error": _QUICK_SCAN_STATE.get("error", ""),
             "progress": _SCAN_STATE.get("progress", {}),
             "error": _SCAN_STATE.get("error", ""),
+            "window_clipped": bool(last_summary.get("window_clipped")),
+            "fetch_window_hours": last_summary.get("fetch_window_hours"),
+            "actual_span_hours": last_summary.get("actual_span_hours"),
+            "oldest_reported": last_summary.get("oldest_reported", ""),
+            "newest_reported": last_summary.get("newest_reported", ""),
             "has_credentials": CFG.has_maximo_credentials,
             "maximo_url": CFG.maximo_base_url or "",
             "last_scan": {

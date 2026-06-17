@@ -93,3 +93,4 @@ README.local.md
 *.swp
 .DS_Store
 Thumbs.db
+verify_window.py

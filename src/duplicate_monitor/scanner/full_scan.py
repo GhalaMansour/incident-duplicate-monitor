@@ -619,13 +619,23 @@ def run_scan(maximo_source, force: bool = False, max_days: Optional[int] = None)
         # Widen the fetch window so the chosen comparison window has older SRs
         # to match against (no point comparing 7 days if we only fetched 2).
         cutoff_hours = max(cutoff_hours, md * 24)
+        cap_pages = CFG.full_scan_max_pages or 25
+        page_size = min(CFG.page_size or 200, 200)
         rows = maximo_source.fetch_latest(
-            max_pages=CFG.full_scan_max_pages or 25,
+            max_pages=cap_pages,
             cutoff_hours=cutoff_hours,
         )
         log.info(
-            "Full scan: fetched %d rows (cutoff=%dh, max_days=%d)", len(rows), cutoff_hours, md
+            "Full scan: fetched %d rows (cutoff=%dh, max_days=%d, cap=%d pages)",
+            len(rows),
+            cutoff_hours,
+            md,
+            cap_pages,
         )
+        summary["fetch_window_hours"] = cutoff_hours
+        summary["max_pages_cap"] = cap_pages
+        if len(rows) >= cap_pages * page_size:
+            summary["window_clipped"] = True
 
         if not rows:
             summary["error"] = "No SRs returned from Maximo"
@@ -640,6 +650,28 @@ def run_scan(maximo_source, force: bool = False, max_days: Optional[int] = None)
         rows = list(unique.values())
         summary["sr_count"] = len(rows)
         log.info("Full scan: %d unique SRs", len(rows))
+
+        # Report the actual time span the fetch covered so the dashboard
+        # can tell the reviewer "you asked for X days, you got Y days
+        # because Maximo had no rows after Z".
+        from duplicate_monitor.matching.scorer import parse_date as _pd
+
+        oldest, newest = None, None
+        for r in rows:
+            dt = _pd(str(r.get("reported", "")))
+            if not dt:
+                continue
+            if oldest is None or dt < oldest:
+                oldest = dt
+            if newest is None or dt > newest:
+                newest = dt
+        if oldest:
+            summary["oldest_reported"] = oldest.isoformat(timespec="seconds")
+        if newest:
+            summary["newest_reported"] = newest.isoformat(timespec="seconds")
+        if oldest and newest:
+            span_hours = (newest - oldest).total_seconds() / 3600.0
+            summary["actual_span_hours"] = round(span_hours, 1)
 
         # Replace row cache — build new dict first, then assign atomically.
         # Assigning to the module-level name is a single bytecode STORE_GLOBAL
