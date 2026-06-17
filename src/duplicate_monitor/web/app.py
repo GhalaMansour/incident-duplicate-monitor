@@ -1675,12 +1675,16 @@ body{
   pointer-events:none;
 }
 .brand-top{position:relative;z-index:1}
-.brand-mark{display:flex; align-items:center; gap:12px; margin-bottom:32px}
+.brand-mark{display:flex; align-items:center; gap:14px; margin-bottom:32px}
 .brand-mark .glyph{
-  width:46px; height:46px; border-radius:12px; background:linear-gradient(135deg,var(--gold) 0%, #d6b87a 100%);
+  width:56px; height:56px; border-radius:14px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(231,201,135,.22);
   display:flex; align-items:center; justify-content:center;
-  font-weight:900; font-size:22px; color:#3a2c17; box-shadow:0 6px 14px rgba(0,0,0,.25);
+  padding:6px;
+  backdrop-filter:blur(4px);
 }
+.brand-mark .glyph img{display:block; max-width:100%; max-height:100%; object-fit:contain}
 .brand-mark .name{font-size:18px; font-weight:800; letter-spacing:.5px}
 .brand-mark .name small{display:block; font-weight:500; font-size:11.5px; color:#dcc99a; margin-top:2px}
 .brand h1{position:relative; z-index:1; font-size:30px; font-weight:800; line-height:1.35; margin-bottom:14px}
@@ -1729,7 +1733,7 @@ button.submit:disabled{background:#cdc2a8; cursor:not-allowed; box-shadow:none}
   <aside class="brand">
     <div class="brand-top">
       <div class="brand-mark">
-        <div class="glyph">ك</div>
+        <div class="glyph"><img src="/static/kidana-logo.png" alt="كدانة"></div>
         <div class="name">كدانة مالك<small>مركز جودة البلاغات</small></div>
       </div>
       <h1>منظومة جودة البلاغات<br><span class="accent">—</span> كشف البلاغات المكررة</h1>
@@ -1764,10 +1768,6 @@ button.submit:disabled{background:#cdc2a8; cursor:not-allowed; box-shadow:none}
     </form>
 
     <div class="alert" id="alert"></div>
-
-    <div class="foot-note">
-      <b>تنبيه:</b> النظام يتحقّق من بياناتك مباشرةً عبر ماكسيمو. لا تُحفظ كلمة السر في قاعدة بيانات النظام.
-    </div>
   </section>
 </div>
 
