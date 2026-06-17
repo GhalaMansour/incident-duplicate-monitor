@@ -37,7 +37,7 @@ A normalized service-request record carries these fields:
 |-------|--------|---------|
 | `sr` | OSLC `ticketid` | Identity |
 | `loc` | OSLC `location` | Blocking key, +4 points |
-| `fault` | Last segment of `description` (taxonomy L4) | Blocking key, +3 points |
+| `fault` | Last two comma-separated segments of `description` (taxonomy L3+L4) | Blocking key, +3 points |
 | `asset` | OSLC `assetnum` | +4 points when matched |
 | `detail` | `description_longdescription` / `longdescription` | Smart text compare |
 | `requestor_no` | OSLC `zzrequestorno` | +2 points when matched |
@@ -94,10 +94,13 @@ block.
 
 Two design choices in the blocking:
 
-- The fault key is the **last comma-separated segment** of the
-  taxonomy string (L4 only). Some operators enter only two of the
-  four taxonomy levels; using the last segment is the most reliable
-  way to match those incomplete entries against complete ones.
+- The fault key is the **last two comma-separated segments** of
+  the taxonomy string (L3 + L4 in the four-level taxonomy). The
+  last single segment was tried first but was too generic — many
+  unrelated incidents share the same leaf fault name. Two
+  segments give enough specificity to distinguish them while
+  still matching the two-segment entries that some operators
+  type, where L3+L4 are the only segments present.
 - An empty `loc` excludes the SR from blocking entirely. Without a
   location, the scorer would over-match — every ticket in the same
   fault category would be a candidate.

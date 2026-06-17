@@ -161,8 +161,9 @@ entirely.
    in Maximo. Different locations means different sites — never a
    duplicate.
 2. **Same fault category.** The two SRs must report the same fault
-   type (the last segment of Maximo's taxonomy). Different fault
-   categories means different problems.
+   type (the last two segments of Maximo's comma-separated
+   taxonomy — typically L3 + L4). Different fault categories means
+   different problems.
 3. **Same asset id — when both sides have one.** If both SRs carry an
    asset id and the two ids differ, the pair is dropped. The reasoning
    is simple: two physically different assets cannot be the same
