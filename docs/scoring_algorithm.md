@@ -111,23 +111,33 @@ gate in Mina — and not the GPS latitude / longitude.
 
 **Why not GPS.** During an early review of the live ticket
 corpus we observed clear duplicate pairs — same caller, same
-fault, same boilerplate description filed minutes apart — whose
-GPS coordinates differed by tens or even hundreds of metres.
-The coordinates carry real-world noise:
+fault, same description, filed minutes apart — whose GPS
+coordinates differed by tens or even hundreds of metres. The
+core reason is simple: **the GPS reading on the SR records where
+the reporter was standing when they filed the ticket, not where
+the incident is happening.** Two people reporting the same
+incident are usually not standing in the same spot:
 
-  * Some operators tap a map pin from inside an air-conditioned
-    operations room; others read the GPS off a phone outside in
-    the sun.
-  * The Maximo field collects whatever the reporting app sends.
-    The two phones in the example above sit at different desks
-    and report slightly different lat/lon for the same incident.
-  * A reporting app sometimes falls back to a default office
-    coordinate when GPS is weak.
+  * The field crew calls in from the incident site (GPS = real
+    location).
+  * The operations-room dispatcher logs the same call a minute
+    later from the control desk (GPS = control room, hundreds of
+    metres away).
+
+Even when both reporters are physically at the incident, the
+coordinates still drift:
+
+  * Two phones reading GPS in the same place can disagree by
+    several metres because of sensor accuracy and cached fixes.
+  * Some reporting apps silently fall back to a default office
+    coordinate when the GPS signal is weak, so the SR ends up
+    tagged at the building, not at the incident.
 
 A GPS-based gate would have rejected those genuine duplicates.
-The structured `location` code, by contrast, is picked from a
-list — the operators who filed the two SRs were both pointing at
-`MN03`, and the algorithm trusts that agreement.
+The structured `location` code, by contrast, is picked by the
+reporter from a list — both reporters chose `MN03` because they
+both knew the incident was at `MN03`, no matter where they
+themselves were standing when they typed it in.
 
 **How the dashboard still uses GPS.** The coordinates are not
 thrown away. Every duplicate card on the dashboard renders the

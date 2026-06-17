@@ -162,13 +162,18 @@ entirely.
    **code** (e.g. `MN03`), chosen by the operator from a controlled
    list — *not* the GPS latitude / longitude.
 
-   Why not GPS: we observed real duplicate pairs in the live
-   corpus whose coordinates differed by tens of metres (different
-   phones, different signal quality, the same operator opening the
-   reporting app from a different desk). A GPS-based gate would
-   have rejected those duplicates. The structured `location` code
-   is what the operators agree on by picking from the list, so the
-   algorithm trusts it as the matching dimension.
+   Why not GPS: the GPS reading on each SR records **where the
+   reporter was standing when they filed the ticket**, not where
+   the incident itself is happening. Two people reporting the same
+   incident are usually not in the same spot — the field crew
+   calls in from the site while the operations dispatcher logs
+   the call from the control room hundreds of metres away. The
+   live corpus is full of genuine duplicates whose coordinates
+   differ for exactly that reason, so a GPS-based gate would have
+   rejected them. The structured `location` code, by contrast, is
+   chosen by both reporters from the same list — both pick `MN03`
+   because they both know the incident is at `MN03`, regardless
+   of where they themselves are standing.
 
    GPS is still useful. Every duplicate card on the dashboard
    shows the distance in metres between the two SRs, so the
