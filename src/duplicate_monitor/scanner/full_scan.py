@@ -619,13 +619,42 @@ def run_scan(maximo_source, force: bool = False, max_days: Optional[int] = None)
         # Widen the fetch window so the chosen comparison window has older SRs
         # to match against (no point comparing 7 days if we only fetched 2).
         cutoff_hours = max(cutoff_hours, md * 24)
+
+        # Page-cap auto-scale: the default LM_FULL_SCAN_MAX_PAGES is tuned
+        # for the 2-day window (15 pages × 200 = 3000 SRs is plenty for two
+        # days at peak Hajj volume). When the user asks for a much longer
+        # window, that same cap silently truncates the result to the newest
+        # 3000 SRs — so picking "month" can return only ~7 days of data
+        # during high-volume periods. Scale the cap with the requested
+        # window so a 30-day pick actually fetches up to 30 days.
+        base_cap = CFG.full_scan_max_pages or 25
+        # Allow ~3 pages (≈600 SRs) per day, comfortably above peak Hajj
+        # arrival rate. The user can still cap it via LM_FULL_SCAN_MAX_PAGES.
+        scaled_cap = max(base_cap, md * 3)
+        page_size = min(CFG.page_size or 200, 200)
         rows = maximo_source.fetch_latest(
-            max_pages=CFG.full_scan_max_pages or 25,
+            max_pages=scaled_cap,
             cutoff_hours=cutoff_hours,
         )
         log.info(
-            "Full scan: fetched %d rows (cutoff=%dh, max_days=%d)", len(rows), cutoff_hours, md
+            "Full scan: fetched %d rows (cutoff=%dh, max_days=%d, cap=%d pages)",
+            len(rows),
+            cutoff_hours,
+            md,
+            scaled_cap,
         )
+        summary["fetch_window_hours"] = cutoff_hours
+        summary["max_pages"] = scaled_cap
+        # Heuristic: if we got back exactly cap × page_size rows, Maximo
+        # almost certainly still had more — surface a warning so the
+        # reviewer knows the window was clipped.
+        if len(rows) >= scaled_cap * page_size:
+            summary["window_clipped"] = True
+            summary["warning"] = (
+                f"تم بلوغ الحد الأقصى للصفحات ({scaled_cap}) — "
+                f"نتائج النافذة قد تكون مقطوعة. ارفع LM_FULL_SCAN_MAX_PAGES "
+                f"في .env إن أردت تغطية كاملة."
+            )
 
         if not rows:
             summary["error"] = "No SRs returned from Maximo"
@@ -640,6 +669,28 @@ def run_scan(maximo_source, force: bool = False, max_days: Optional[int] = None)
         rows = list(unique.values())
         summary["sr_count"] = len(rows)
         log.info("Full scan: %d unique SRs", len(rows))
+
+        # Compute the actual time range the fetch covered so the dashboard
+        # can show "actually fetched X to Y" instead of just the requested
+        # window. Useful when the cap clipped a long window.
+        from duplicate_monitor.matching.scorer import parse_date as _pd
+
+        oldest, newest = None, None
+        for r in rows:
+            dt = _pd(str(r.get("reported", "")))
+            if not dt:
+                continue
+            if oldest is None or dt < oldest:
+                oldest = dt
+            if newest is None or dt > newest:
+                newest = dt
+        if oldest:
+            summary["oldest_reported"] = oldest.isoformat(timespec="seconds")
+        if newest:
+            summary["newest_reported"] = newest.isoformat(timespec="seconds")
+        if oldest and newest:
+            span_hours = (newest - oldest).total_seconds() / 3600.0
+            summary["actual_span_hours"] = round(span_hours, 1)
 
         # Replace row cache — build new dict first, then assign atomically.
         # Assigning to the module-level name is a single bytecode STORE_GLOBAL

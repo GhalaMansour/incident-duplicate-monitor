@@ -1365,6 +1365,7 @@ def _bg_scan_maximo(force: bool = False, max_days: Optional[int] = None):
             "fetched": 0,
         }
         result = _sc.run_scan(src, force=force, max_days=max_days)
+        _SCAN_STATE["last_summary"] = result
         if result.get("error"):
             _SCAN_STATE["error"] = result["error"]
         else:
@@ -1482,6 +1483,7 @@ def api_quick_scan_maximo():
 @app.get("/api/scan-status")
 def api_scan_status():
     scan = _load_scan()
+    last_summary = _SCAN_STATE.get("last_summary") or {}
     return JSONResponse(
         {
             "running": _SCAN_STATE.get("running", False),
@@ -1490,6 +1492,12 @@ def api_scan_status():
             "quick_error": _QUICK_SCAN_STATE.get("error", ""),
             "progress": _SCAN_STATE.get("progress", {}),
             "error": _SCAN_STATE.get("error", ""),
+            "warning": last_summary.get("warning", ""),
+            "window_clipped": bool(last_summary.get("window_clipped")),
+            "fetch_window_hours": last_summary.get("fetch_window_hours"),
+            "actual_span_hours": last_summary.get("actual_span_hours"),
+            "oldest_reported": last_summary.get("oldest_reported", ""),
+            "newest_reported": last_summary.get("newest_reported", ""),
             "has_credentials": CFG.has_maximo_credentials,
             "maximo_url": CFG.maximo_base_url or "",
             "last_scan": {
@@ -2641,7 +2649,7 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
             <div id="mx-error" style="display:none;background:var(--red-bg);border:1px solid var(--red-bd);border-radius:6px;padding:10px 12px;font-size:11.5px;color:var(--red);margin-bottom:12px"></div>
             <div id="mx-result" style="display:none;background:var(--grn-bg);border:1px solid var(--grn-bd);border-radius:6px;padding:12px;font-size:12px;color:var(--green);margin-bottom:12px;text-align:center"></div>
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;background:var(--sand);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-              <label for="mx-maxdays" style="font-size:11.5px;font-weight:700;color:var(--txt2);white-space:nowrap">نافذة المقارنة الزمنية:</label>
+              <label for="mx-maxdays" style="font-size:11.5px;font-weight:700;color:var(--txt2);white-space:nowrap">نطاق السحب والمقارنة:</label>
               <select id="mx-maxdays" style="height:32px;border:1px solid var(--border);border-radius:6px;background:var(--card);font-family:inherit;font-size:12px;color:var(--txt1);padding:0 8px;outline:none">
                 <option value="1">يوم واحد</option>
                 <option value="2" selected>يومان</option>
@@ -2651,7 +2659,7 @@ html,body{font-family:"Cairo","Segoe UI",sans-serif;background:var(--sand);color
                 <option value="14">أسبوعان</option>
                 <option value="30">شهر</option>
               </select>
-              <span style="font-size:10px;color:var(--txt4);line-height:1.4">أقصى فارق بين بلاغين ليُعدّا تكراراً محتملاً</span>
+              <span style="font-size:10px;color:var(--txt4);line-height:1.4">يحدّد كم يوم نسحب من ماكسيمو، وأقصى فارق بين بلاغين ليُعدّا تكراراً محتملاً</span>
             </div>
             <button class="hero-btn" id="btn-mx-scan" onclick="startMaximoScan()" style="width:100%;justify-content:center;font-size:13px;padding:12px">
                سحب من Maximo الآن
