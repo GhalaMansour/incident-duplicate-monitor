@@ -36,7 +36,7 @@ A normalized service-request record carries these fields:
 | Field | Source | Used by |
 |-------|--------|---------|
 | `sr` | OSLC `ticketid` | Identity |
-| `loc` | OSLC `location` | Blocking key, +4 points |
+| `loc` | OSLC `location` — Maximo's structured location **code** (e.g. `MN03`), *not* the GPS coordinates | Blocking key, +4 points |
 | `fault` | Last two comma-separated segments of `description` (taxonomy L3+L4) | Blocking key, +3 points |
 | `asset` | OSLC `assetnum` | +4 points when matched |
 | `detail` | `description_longdescription` / `longdescription` | Smart text compare |
@@ -101,6 +101,29 @@ Two design choices in the blocking:
   segments give enough specificity to distinguish them while
   still matching the two-segment entries that some operators
   type, where L3+L4 are the only segments present.
+
+### "Same location" means the Maximo location code, not GPS
+
+This is the most common source of confusion: the algorithm's
+location gate compares Maximo's `location` field — a structured
+code from a controlled vocabulary, e.g. `MN03` for a specific
+gate in Mina — and not the GPS latitude / longitude.
+
+  * Two SRs filed at `MN03` with their GPS coordinates 50 m apart
+    pass the location gate (same `MN03`) and are scored as
+    potential duplicates.
+  * Two SRs filed at `MN03` and `MN04` with their GPS coordinates
+    only 2 m apart **fail** the location gate; the operators
+    chose different `location` codes, so the system trusts the
+    operator and treats them as separate incidents.
+
+GPS latitude and longitude (`latitudey`, `longitudex` in OSLC)
+are still pulled from Maximo so the dashboard can render the
+incident on a map and show "this SR is X metres from the asset",
+but those numbers never enter the duplicate score. The
+controlled `location` code is the dimension the algorithm trusts
+because operators select it from a list; the GPS reading is
+treated as advisory display data.
 - An empty `loc` excludes the SR from blocking entirely. Without a
   location, the scorer would over-match — every ticket in the same
   fault category would be a candidate.
