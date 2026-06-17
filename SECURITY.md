@@ -32,5 +32,9 @@ guarantees:
 
 - **The Maximo OSLC source exposes no write operations.** Enforced at
   the code level.
-- **No PII fields are requested.** The `oslc.select` allowlist omits
-  GPS, contractor names, and reporter contact information.
+- **Read access is bounded by an `oslc.select` allowlist.** The
+  service pulls only the operational fields the dashboard renders,
+  including the contact and GPS fields reviewers need to act on a
+  duplicate. The full list and the boundaries around how that data
+  is stored and re-shared are in
+  [`docs/security.md`](docs/security.md).

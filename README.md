@@ -403,7 +403,11 @@ The security posture is documented in detail in
 
 - **No write access to Maximo.** The OSLC source exposes no write
   operations.
-- **Read-only allowlist enforcement.** PII fields are never requested.
+- **Bounded read allowlist.** The OSLC request enumerates fields
+  via `oslc.select`; only the operational fields the dashboard
+  renders are pulled. The full list (including the contact and
+  location fields reviewers need to act on a duplicate) is in
+  [`docs/security.md`](docs/security.md).
 - **SQLite is local-only.** The database file is owned and read by the
   service user only; no remote access path exists.
 - **TLS-only egress** to Maximo.

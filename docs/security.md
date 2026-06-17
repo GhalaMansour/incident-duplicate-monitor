@@ -17,7 +17,7 @@ The principal threats and the controls in place:
 |--------|---------|----------|
 | Credential disclosure | Secrets in environment variables, never committed | `.env.example`, `.gitignore` |
 | Unauthorized Maximo writes | Source exposes no write operations | `sources/maximo.py` |
-| PII exfiltration via Maximo | Read allowlist via `oslc.select`; no PII fields requested | `sources/maximo.py` (`_SELECT_FIELDS`) |
+| Unbounded PII exfiltration via Maximo | Read allowlist via `oslc.select`; only the operational fields below are requested, no broad `*` selector | `sources/maximo.py` (`_SELECT_FIELDS`) |
 | Tampering with the SQLite database | File permissions restricted to the service user | Deployment |
 | Pickle deserialization attacks | `live_scan.pkl` is local-only and written by the service itself | `scanner/full_scan.py` |
 | Dashboard exposure | Bound to `0.0.0.0` only behind a trusted reverse proxy | Deployment |
@@ -64,12 +64,40 @@ via parameter binding in every query in `storage/db.py`.
 - Dashboard: bound to plain HTTP behind a TLS-terminating reverse
   proxy in production.
 
-## Logging and PII
+## Personal data handled by the service
 
-Log records include `ticket_id`, source name, timing, and counts.
-They do not include the OpenAI-style prompts (the monitor does not use
-OpenAI) and do not include the Details field contents. The OSLC
-requests do not request PII fields.
+The service is an operational tool for reviewers and exposes the
+contact and location fields that reviewers need to act on a
+duplicate. The following personal-data fields are requested from
+Maximo, stored in the local SQLite cache and the in-memory live
+scan, and rendered in the dashboard — they are **not** redacted
+from the system:
+
+- Reporter and caller phone numbers (`reportedphone`, `affectedphone`).
+- Reporter and caller email addresses (`reportedemail`, `affectedemail`).
+- Reporter and assignee usernames / display names
+  (`reportedby`, `zzrequestor`, `ownergroup_description`).
+- Incident GPS coordinates (`latitudey`, `longitudex`) for the map
+  view.
+
+The boundaries the service does respect:
+
+- **No broad field selector.** The OSLC request enumerates fields
+  via `oslc.select`; anything not on the allowlist is never pulled
+  out of Maximo. Adding a field requires a code change.
+- **No outbound re-share.** The fields above are only written to
+  the local SQLite (`monitor.db`) and the local pickle
+  (`live_scan.pkl`). They are never forwarded to a third-party
+  service, never emailed out, and never logged.
+- **No PII in log records.** Log lines carry `ticket_id`, source
+  name, timing and counts. They do not carry the Details text or
+  any of the contact fields above.
+- **TLS-only egress** to the Maximo host.
+
+Operators who do not want phone / email / GPS in their deployment
+can shrink the field list in
+`src/duplicate_monitor/sources/maximo.py::_SELECT_FIELDS`; the
+dashboard renders any missing field as blank without crashing.
 
 ## Dependency hygiene
 
