@@ -63,11 +63,17 @@ def cmd_poller() -> None:
 def cmd_web() -> None:
     """Launch the FastAPI dashboard server.
 
-    Honors both ``LM_WEB_PORT`` (custom) and ``PORT`` (set by managed
-    platforms like Render). ``PORT`` takes precedence so cloud
-    deployments bind correctly out of the box.
+    Port resolution order, highest priority first:
+
+      1. ``PORT`` environment variable (set by managed platforms like
+         Render) — wins so cloud deployments bind correctly out of
+         the box without extra config.
+      2. ``LM_PORT`` — the documented operator override, surfaced in
+         ``.env.example`` and ``docs/dashboard_guide.md`` and loaded
+         into ``CFG.dashboard_port``.
+      3. The default ``8502``.
     """
-    web_port = int(os.environ.get("PORT") or os.environ.get("LM_WEB_PORT", "8502"))
+    web_port = int(os.environ.get("PORT") or CFG.dashboard_port or 8502)
     print(f"Launching web dashboard on http://localhost:{web_port}")
     try:
         import uvicorn

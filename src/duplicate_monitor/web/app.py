@@ -1624,6 +1624,18 @@ def api_reports():
 
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
+@app.get("/healthz")
+def healthz():
+    """Tiny liveness probe for managed platforms / uptime monitors.
+
+    Returns 200 with ``{"status": "ok"}`` whenever the process is
+    able to handle a request — no database touch, no auth, no
+    side-effects. The auth middleware lets ``/healthz`` through so
+    external monitors can hit it without a session cookie.
+    """
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(_HTML, headers={"Cache-Control": "no-store"})
