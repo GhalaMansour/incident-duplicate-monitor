@@ -109,21 +109,44 @@ location gate compares Maximo's `location` field — a structured
 code from a controlled vocabulary, e.g. `MN03` for a specific
 gate in Mina — and not the GPS latitude / longitude.
 
-  * Two SRs filed at `MN03` with their GPS coordinates 50 m apart
-    pass the location gate (same `MN03`) and are scored as
-    potential duplicates.
-  * Two SRs filed at `MN03` and `MN04` with their GPS coordinates
-    only 2 m apart **fail** the location gate; the operators
-    chose different `location` codes, so the system trusts the
-    operator and treats them as separate incidents.
+**Why not GPS.** During an early review of the live ticket
+corpus we observed clear duplicate pairs — same caller, same
+fault, same boilerplate description filed minutes apart — whose
+GPS coordinates differed by tens or even hundreds of metres.
+The coordinates carry real-world noise:
 
-GPS latitude and longitude (`latitudey`, `longitudex` in OSLC)
-are still pulled from Maximo so the dashboard can render the
-incident on a map and show "this SR is X metres from the asset",
-but those numbers never enter the duplicate score. The
-controlled `location` code is the dimension the algorithm trusts
-because operators select it from a list; the GPS reading is
-treated as advisory display data.
+  * Some operators tap a map pin from inside an air-conditioned
+    operations room; others read the GPS off a phone outside in
+    the sun.
+  * The Maximo field collects whatever the reporting app sends.
+    The two phones in the example above sit at different desks
+    and report slightly different lat/lon for the same incident.
+  * A reporting app sometimes falls back to a default office
+    coordinate when GPS is weak.
+
+A GPS-based gate would have rejected those genuine duplicates.
+The structured `location` code, by contrast, is picked from a
+list — the operators who filed the two SRs were both pointing at
+`MN03`, and the algorithm trusts that agreement.
+
+**How the dashboard still uses GPS.** The coordinates are not
+thrown away. Every duplicate card on the dashboard renders the
+straight-line distance between the two SRs ("this SR is 23 m
+from the matched SR") as an advisory readout. The reviewer can
+glance at that number to decide:
+
+  * Distance is small (a few metres) → both reports really are
+    about the same incident at the same physical point, even if
+    one of them has a slightly drifted GPS reading.
+  * Distance is large (hundreds of metres) → the reviewer can
+    flag the pair for a closer look even though they share the
+    same `location` code.
+
+So the algorithm makes the *match decision* using the controlled
+code, and the dashboard hands the reviewer the GPS distance to
+make a final human judgement on borderline cases. GPS is treated
+as evidence presented to a human, not as a gate the algorithm
+trusts on its own.
 - An empty `loc` excludes the SR from blocking entirely. Without a
   location, the scorer would over-match — every ticket in the same
   fault category would be a candidate.

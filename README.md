@@ -160,12 +160,23 @@ entirely.
 1. **Same location.** The two SRs must share the same `location`
    value in Maximo. *Location* here is Maximo's structured location
    **code** (e.g. `MN03`), chosen by the operator from a controlled
-   list — *not* the GPS latitude / longitude. Two SRs that happen
-   to be 5 metres apart on the map but were filed under different
-   location codes fail this gate. (GPS coordinates are still read
-   from Maximo so the dashboard can render the map and show the
-   distance between incidents, but they do not enter the score —
-   see [`docs/scoring_algorithm.md`](docs/scoring_algorithm.md)).
+   list — *not* the GPS latitude / longitude.
+
+   Why not GPS: we observed real duplicate pairs in the live
+   corpus whose coordinates differed by tens of metres (different
+   phones, different signal quality, the same operator opening the
+   reporting app from a different desk). A GPS-based gate would
+   have rejected those duplicates. The structured `location` code
+   is what the operators agree on by picking from the list, so the
+   algorithm trusts it as the matching dimension.
+
+   GPS is still useful. Every duplicate card on the dashboard
+   shows the distance in metres between the two SRs, so the
+   reviewer can decide on borderline cases (a few metres apart →
+   almost certainly the same incident; hundreds of metres apart →
+   worth a closer look even though the codes match). The
+   algorithm makes the match call on the structured code, the
+   reviewer makes the final call with the GPS distance in hand.
 2. **Same fault category.** The two SRs must report the same fault
    type (the last two segments of Maximo's comma-separated
    taxonomy — typically L3 + L4). Different fault categories means
