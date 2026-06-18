@@ -73,6 +73,16 @@ def cmd_web() -> None:
          into ``CFG.dashboard_port``.
       3. The default ``8502``.
     """
+    # The dashboard reads from and writes to monitor.db on every
+    # authenticated request (session lookup on each page load). When
+    # the operator runs `web` first — before `poller`, `both`, or
+    # `diag` have had a chance to create the schema — the very first
+    # login fails with `no such table: sessions`. Initialise here so
+    # `web` is a self-sufficient entry point.
+    from duplicate_monitor.storage import db
+
+    db.init_db()
+
     web_port = int(os.environ.get("PORT") or CFG.dashboard_port or 8502)
     print(f"Launching web dashboard on http://localhost:{web_port}")
     try:
